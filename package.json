@@ -4,10 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev:frontend": "cd shnoor-meetings-frontend && npm run dev",
+    "dev:frontend": "npm run dev --prefix shnoor-meetings-frontend",
     "dev:backend": "cd shnoor-meetings-backend && .\\venv\\Scripts\\python.exe main.py",
     "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
-    "build": "cd shnoor-meetings-frontend && npm install && npm run build",
+    "build": "npm install --prefix shnoor-meetings-frontend && npm run build --prefix shnoor-meetings-frontend",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
