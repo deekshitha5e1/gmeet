@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: shnoor-backend
+    runtime: python
+    rootDir: shnoor-meetings-backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_DB_URL
+        sync: false
