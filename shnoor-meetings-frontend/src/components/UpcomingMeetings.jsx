@@ -8,8 +8,16 @@ import { getCurrentUser } from '../utils/currentUser';
 export default function UpcomingMeetings() {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
-  const currentUser = getCurrentUser();
+  const [currentUser, setCurrentUser] = useState(getCurrentUser());
+  const [error, setError] = useState(null);
   const navigate = useNavigate();
+
+  // Sync user state if it changes in other tabs or after login
+  useEffect(() => {
+    const handleSync = () => setCurrentUser(getCurrentUser());
+    window.addEventListener('storage', handleSync);
+    return () => window.removeEventListener('storage', handleSync);
+  }, []);
 
   useEffect(() => {
     const fetchUpcoming = async () => {
@@ -17,16 +25,23 @@ export default function UpcomingMeetings() {
       const userId = currentUser?.meetingUserId;
       
       if (!userEmail && !userId) {
+        console.log('UpcomingMeetings: No user identity found, skipping fetch');
         setLoading(false);
         return;
       }
+
+      setLoading(true);
+      setError(null);
 
       try {
         const params = new URLSearchParams();
         if (userEmail) params.set('user_email', userEmail);
         else if (userId) params.set('user_id', userId);
         
-        const response = await fetch(buildApiUrl(`/api/calendar/events?${params.toString()}`));
+        const apiUrl = buildApiUrl(`/api/calendar/events?${params.toString()}`);
+        console.log('UpcomingMeetings: Fetching from', apiUrl);
+
+        const response = await fetch(apiUrl);
         if (response.ok) {
           const data = await response.json();
           const upcoming = data
@@ -34,9 +49,14 @@ export default function UpcomingMeetings() {
             .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
             .slice(0, 3);
           setEvents(upcoming);
+        } else {
+          const errText = await response.text();
+          console.error('UpcomingMeetings: API error', response.status, errText);
+          setError(`Failed to load meetings (${response.status})`);
         }
-      } catch (error) {
-        console.error('Failed to fetch upcoming meetings:', error);
+      } catch (err) {
+        console.error('UpcomingMeetings: Fetch failed', err);
+        setError('Network error: Could not reach the server');
       } finally {
         setLoading(false);
       }
@@ -54,6 +74,24 @@ export default function UpcomingMeetings() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="mt-12 p-6 rounded-2xl border border-red-100 bg-red-50/30">
+        <div className="flex items-center gap-3 text-red-500 mb-2">
+          <Calendar size={18} />
+          <span className="text-sm font-bold">Something went wrong</span>
+        </div>
+        <p className="text-xs text-red-600/70 mb-4">{error}</p>
+        <button 
+          onClick={() => setCurrentUser(getCurrentUser())}
+          className="text-xs font-bold text-red-600 underline hover:no-underline"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
   if (events.length === 0) {
     return (
       <div className="mt-12 p-6 rounded-2xl border border-dashed border-gray-200 bg-gray-50/50">
@@ -62,6 +100,12 @@ export default function UpcomingMeetings() {
           <span className="text-sm font-medium">No upcoming meetings</span>
         </div>
         <p className="text-xs text-gray-500">Your scheduled meetings will appear here.</p>
+        <button 
+          onClick={() => setCurrentUser(getCurrentUser())}
+          className="mt-3 text-[10px] font-bold text-blue-600 uppercase tracking-widest hover:underline"
+        >
+          Check for updates
+        </button>
       </div>
     );
   }
