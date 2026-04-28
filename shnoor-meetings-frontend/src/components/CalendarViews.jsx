@@ -26,7 +26,7 @@ function isPendingReminder(event) {
   return (event.category || 'meetings') === 'reminders' && isAfter(new Date(event.start_time), new Date());
 }
 
-export function MonthView({ currentDate, events, onDateClick }) {
+export function MonthView({ currentDate, events, onDateClick, onEventClick }) {
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(monthStart);
   const startDate = startOfWeek(monthStart);
@@ -62,19 +62,20 @@ export function MonthView({ currentDate, events, onDateClick }) {
                   {format(day, 'd')}
                 </span>
                 <div className="w-full flex flex-col gap-1 px-1">
-                  {dayEvents.map(event => {
-                    const theme = getEventTheme(event);
-                    return (
-                      <div 
-                        key={event.id} 
-                        className={`text-[10px] px-2 py-1 border-l-4 rounded-sm truncate transition-colors font-medium ${theme.month} ${isPendingReminder(event) ? 'shadow-sm' : ''}`}
-                        title={`${event.title} - ${event.description || ''}`}
-                      >
-                        {event.title}
-                        {isPendingReminder(event) ? ` • ${format(new Date(event.start_time), 'h:mm a')}` : ''}
-                      </div>
-                    );
-                  })}
+                    {dayEvents.map(event => {
+                      const theme = getEventTheme(event);
+                      return (
+                        <div 
+                          key={event.id} 
+                          onClick={(e) => onEventClick(event, e)}
+                          className={`text-[10px] px-2 py-1 border-l-4 rounded-sm truncate transition-colors font-medium ${theme.month} ${isPendingReminder(event) ? 'shadow-sm' : ''} hover:brightness-95 cursor-pointer`}
+                          title={`${event.title}${event.description ? ` - ${event.description}` : ''} (${format(new Date(event.start_time), 'h:mm a')})`}
+                        >
+                          {event.title}
+                          {isPendingReminder(event) ? ` • ${format(new Date(event.start_time), 'h:mm a')}` : ''}
+                        </div>
+                      );
+                    })}
                 </div>
               </div>
             </div>
@@ -85,7 +86,7 @@ export function MonthView({ currentDate, events, onDateClick }) {
   );
 }
 
-export function WeekView({ currentDate, events, onSlotClick }) {
+export function WeekView({ currentDate, events, onSlotClick, onEventClick }) {
   const startDate = startOfWeek(currentDate);
   const days = Array.from({ length: 7 }, (_, i) => addDays(startDate, i));
   const hours = Array.from({ length: 24 }, (_, i) => i);
@@ -129,12 +130,13 @@ export function WeekView({ currentDate, events, onSlotClick }) {
                       return (
                         <div 
                           key={event.id}
-                          className={`absolute inset-x-1 top-1 border-l-4 rounded-sm p-1.5 z-10 shadow-sm ${theme.block}`}
+                          onClick={(e) => onEventClick(event, e)}
+                          className={`absolute inset-x-1 top-1 border-l-4 rounded-sm p-1.5 z-10 shadow-sm ${theme.block} hover:brightness-95 cursor-pointer`}
+                          title={event.title}
                         >
                           <div className="text-[10px] font-bold truncate">{event.title}</div>
                           <div className={`text-[9px] font-medium ${theme.text}`}>
                             {format(new Date(event.start_time), 'h:mm a')}
-                            {isPendingReminder(event) ? ' - Reminder' : ''}
                           </div>
                         </div>
                       );
@@ -150,7 +152,7 @@ export function WeekView({ currentDate, events, onSlotClick }) {
   );
 }
 
-export function DayView({ currentDate, events, onSlotClick }) {
+export function DayView({ currentDate, events, onSlotClick, onEventClick }) {
   const hours = Array.from({ length: 24 }, (_, i) => i);
 
   return (
@@ -188,16 +190,37 @@ export function DayView({ currentDate, events, onSlotClick }) {
                     return (
                       <div 
                         key={event.id}
-                        className={`absolute inset-x-4 top-2 border-l-4 rounded-lg p-4 z-10 shadow-md transform hover:scale-[1.01] transition-all ${theme.block}`}
+                        onClick={(e) => onEventClick(event, e)}
+                        className={`absolute inset-x-4 top-2 border-l-4 rounded-lg p-4 z-10 shadow-md transform hover:scale-[1.01] transition-all ${theme.block} cursor-pointer`}
                       >
-                        <div className="text-sm font-bold">{event.title}</div>
-                        <div className={`text-xs mt-1 font-medium italic opacity-90 ${theme.text}`}>
-                          {format(new Date(event.start_time), 'h:mm a')}
-                          {event.description ? ` - ${event.description}` : ''}
+                        <div className="flex justify-between items-start">
+                          <div className="text-sm font-bold">{event.title}</div>
+                          <div className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-white/50">
+                            {event.category}
+                          </div>
                         </div>
+                        <div className={`text-xs mt-1 font-medium ${theme.text} flex items-center gap-2`}>
+                          <span className="font-bold">{format(new Date(event.start_time), 'h:mm a')} - {format(new Date(event.end_time), 'h:mm a')}</span>
+                          {event.description && <span className="opacity-60">|</span>}
+                          <span className="italic opacity-80">{event.description}</span>
+                        </div>
+                        
+                        <div className="mt-3 flex items-center gap-4">
+                          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-600 bg-white/40 px-2 py-1 rounded-md">
+                            <span className="text-gray-400">🔔</span>
+                            {event.reminder_offset_minutes}m before
+                          </div>
+                          {event.guest_emails?.length > 0 && (
+                            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-600 bg-white/40 px-2 py-1 rounded-md">
+                              <span className="text-gray-400">👥</span>
+                              {event.guest_emails.length} Guests
+                            </div>
+                          )}
+                        </div>
+
                         {isPendingReminder(event) && (
-                          <div className="text-[11px] font-semibold text-amber-800 mt-2">
-                            Pending reminder for {format(new Date(event.start_time), 'MMM d, yyyy')}
+                          <div className="text-[11px] font-bold text-amber-800 mt-2 flex items-center gap-1">
+                            <span>⚠️</span> Pending reminder for {format(new Date(event.start_time), 'MMM d')}
                           </div>
                         )}
                       </div>

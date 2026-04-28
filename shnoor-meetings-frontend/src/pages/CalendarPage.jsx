@@ -168,6 +168,15 @@ export default function CalendarPage() {
     setIsModalOpen(true);
   };
 
+  const handleEventClick = (event, e) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    setSelectedEvent(event);
+    setSelectedDate(new Date(event.start_time));
+    setIsModalOpen(true);
+  };
+
   const handleToggleCategory = (category) => {
     setActiveCategories((prev) => (
       prev.includes(category)
@@ -281,6 +290,7 @@ export default function CalendarPage() {
               currentDate={currentDate} 
               events={filteredEvents} 
               onDateClick={handleDateClick} 
+              onEventClick={handleEventClick}
               onRemoveEvent={handleRemoveEvent}
             />
           )}
@@ -289,6 +299,7 @@ export default function CalendarPage() {
               currentDate={currentDate} 
               events={filteredEvents} 
               onSlotClick={handleDateClick} 
+              onEventClick={handleEventClick}
               onRemoveEvent={handleRemoveEvent}
             />
           )}
@@ -297,6 +308,7 @@ export default function CalendarPage() {
               currentDate={currentDate} 
               events={filteredEvents} 
               onSlotClick={handleDateClick} 
+              onEventClick={handleEventClick}
               onRemoveEvent={handleRemoveEvent}
             />
           )}
