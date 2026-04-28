@@ -213,6 +213,11 @@ export default function LandingPage() {
               </div>
 
               {/* Join Meeting Button */}
+              <button
+                onClick={() => setShowJoinModal(true)}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-transparent border border-gray-300 hover:bg-gray-50 font-medium py-3 px-6 rounded-md shadow-sm transition-all active:scale-95 text-gray-700"
+              >
+                <Keyboard size={18} className="text-gray-500" />
                 Join a meeting
               </button>
             </div>
