@@ -233,7 +233,7 @@ async def create_event(event: CalendarEvent):
             "category": category,
             "start_time": event.start_time,
             "room_id": room_id,
-            "user_email": event.user_email,
+            "user_email": recipient_emails_str or event.user_email,
             "reminder_offset_minutes": event.reminder_offset_minutes
         }
         try:
@@ -332,4 +332,20 @@ async def update_event(id: str, event: CalendarEvent):
         release_db_connection(conn)
 
     trigger_calendar_reminder_check()
+
+    if event.user_email and category in ["meetings", "meeting"]:
+        event_dict = {
+            "title": event.title,
+            "description": event.description,
+            "category": category,
+            "start_time": event.start_time,
+            "room_id": room_id,
+            "user_email": recipient_emails_str or event.user_email,
+            "reminder_offset_minutes": event.reminder_offset_minutes
+        }
+        try:
+            send_meeting_scheduled_email(event_dict)
+        except Exception as e:
+            print(f"Failed to send updated meeting email: {e}")
+
     return {"message": "Event updated successfully"}
