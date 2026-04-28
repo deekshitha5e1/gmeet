@@ -382,10 +382,51 @@ def _ensure_tables():
 
     try:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT 1")
+            # Users Table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id UUID PRIMARY KEY,
+                    firebase_uid TEXT UNIQUE,
+                    name TEXT,
+                    email TEXT UNIQUE,
+                    profile_picture TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+
+            # Meetings Table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS meetings (
+                    id UUID PRIMARY KEY,
+                    host_id UUID REFERENCES users(id),
+                    title TEXT,
+                    status TEXT DEFAULT 'inactive',
+                    started_at TIMESTAMPTZ,
+                    ended_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+
+            # Calendar Events Table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS calendar_events (
+                    id UUID PRIMARY KEY,
+                    user_id UUID REFERENCES users(id),
+                    recipient_email TEXT,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    start_time TIMESTAMPTZ NOT NULL,
+                    end_time TIMESTAMPTZ,
+                    category TEXT DEFAULT 'meetings',
+                    room_id UUID,
+                    reminder_offset_minutes INTEGER DEFAULT 5,
+                    reminder_sent_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
         conn.commit()
-    except Exception:
+    except Exception as e:
+        print(f"Error ensuring tables exist: {e}")
         conn.rollback()
-        raise
     finally:
         release_db_connection(conn)

@@ -226,14 +226,16 @@ async def create_event(event: CalendarEvent):
 
     trigger_calendar_reminder_check()
 
-    if event.user_email and category in ["meetings", "meeting"]:
+    if recipient_emails_str and category in ["meetings", "meeting"]:
         event_dict = {
             "title": event.title,
             "description": event.description,
             "category": category,
             "start_time": event.start_time,
+            "end_time": event.end_time,
             "room_id": room_id,
-            "user_email": recipient_emails_str or event.user_email,
+            "user_name": event.user_name or "Calendar User",
+            "user_email": recipient_emails_str,
             "reminder_offset_minutes": event.reminder_offset_minutes
         }
         try:
@@ -333,14 +335,16 @@ async def update_event(id: str, event: CalendarEvent):
 
     trigger_calendar_reminder_check()
 
-    if event.user_email and category in ["meetings", "meeting"]:
+    if recipient_emails_str and category in ["meetings", "meeting"]:
         event_dict = {
             "title": event.title,
             "description": event.description,
             "category": category,
             "start_time": event.start_time,
+            "end_time": event.end_time,
             "room_id": room_id,
-            "user_email": recipient_emails_str or event.user_email,
+            "user_name": event.user_name or "Calendar User",
+            "user_email": recipient_emails_str,
             "reminder_offset_minutes": event.reminder_offset_minutes
         }
         try:

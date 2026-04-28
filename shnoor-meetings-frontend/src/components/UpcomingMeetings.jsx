@@ -143,7 +143,8 @@ export default function UpcomingMeetings() {
                   <div className="flex items-center gap-3 text-[11px] text-gray-500 font-bold uppercase tracking-wider">
                     <span className="flex items-center gap-1">
                       <Clock size={12} />
-                      {format(new Date(event.start_time), 'h:mm a')} - {format(new Date(event.end_time), 'h:mm a')}
+                      {format(new Date(event.start_time), 'h:mm a')}
+                      {event.end_time && ` - ${format(new Date(event.end_time), 'h:mm a')}`}
                     </span>
                     <span>•</span>
                     <span>{format(new Date(event.start_time), 'MMM d, yyyy')}</span>
@@ -171,9 +172,18 @@ export default function UpcomingMeetings() {
                   <span>{event.reminder_offset_minutes}m before</span>
                 </div>
                 {event.guest_emails && event.guest_emails.length > 0 && (
-                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
-                    <Users size={12} />
-                    <span>{event.guest_emails.length + 1} People</span>
+                  <div className="flex flex-col gap-1.5 pt-1">
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full self-start">
+                      <Users size={12} />
+                      <span>{event.guest_emails.length + 1} People</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 px-1">
+                      {event.guest_emails.map((email, idx) => (
+                        <span key={idx} className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200">
+                          {email}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>

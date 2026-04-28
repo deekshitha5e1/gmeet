@@ -102,20 +102,38 @@ def _build_reminder_body(event: dict) -> str:
     event_title = event.get("title") or "Untitled"
     event_category = ((event.get("category") or "meeting").rstrip("s")).capitalize()
     event_start = _format_event_start(event.get("start_time"))
+    event_end = _format_event_start(event.get("end_time")) if event.get("end_time") else None
     offset_minutes = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
 
     room_id = event.get("room_id")
-    frontend_url = (os.getenv("FRONTEND_URL") or "http://localhost:5173").rstrip("/")
+    frontend_url = (os.getenv("FRONTEND_URL") or "https://gmeet-wt19.vercel.app").rstrip("/")
     link_text = f"Join meeting here: {frontend_url}/meeting/{room_id}\n\n" if room_id else ""
 
     desc = f"Description: {event.get('description')}\n" if event.get('description') else ""
+    
+    # Extract guests and host
+    recipient_email = (event.get("user_email") or "").strip()
+    emails_list = [e.strip() for e in recipient_email.split(",") if e.strip()]
+    
+    host_text = ""
+    guests_text = ""
+    if emails_list:
+        host_text = f"Organizer: {emails_list[0]}\n"
+        if len(emails_list) > 1:
+            guests_text = "Guests: " + ", ".join(emails_list[1:]) + "\n"
+
+    time_range = f"{event_start}"
+    if event_end:
+        time_range += f" to {event_end}"
 
     return (
         f"Hello,\n\n"
-        f"You have a {event_category.lower()} scheduled in {offset_minutes} minutes.\n\n"
+        f"You have a {event_category.lower()} starting in {offset_minutes} minutes.\n\n"
         f"Title: {event_title}\n"
-        f"Date and time: {event_start}\n"
+        f"Time: {time_range}\n"
         f"Category: {event_category}\n"
+        f"{host_text}"
+        f"{guests_text}"
         f"{desc}\n"
         f"{link_text}"
         f"Please be ready before it starts.\n\n"
@@ -132,6 +150,8 @@ def _build_scheduled_body(event: dict) -> str:
     event_title = event.get("title") or "Untitled"
     event_category = ((event.get("category") or "meeting").rstrip("s")).capitalize()
     event_start = _format_event_start(event.get("start_time"))
+    event_end = _format_event_start(event.get("end_time")) if event.get("end_time") else None
+    user_name = event.get("user_name") or "User"
     
     room_id = event.get("room_id")
     frontend_url = (os.getenv("FRONTEND_URL") or "https://gmeet-wt19.vercel.app").rstrip("/")
@@ -139,12 +159,29 @@ def _build_scheduled_body(event: dict) -> str:
     
     desc = f"Description: {event.get('description')}\n" if event.get('description') else ""
 
+    # Extract guests and host
+    recipient_email = (event.get("user_email") or "").strip()
+    emails_list = [e.strip() for e in recipient_email.split(",") if e.strip()]
+    
+    host_text = ""
+    guests_text = ""
+    if emails_list:
+        host_text = f"Organizer: {emails_list[0]}\n"
+        if len(emails_list) > 1:
+            guests_text = "Guests: " + ", ".join(emails_list[1:]) + "\n"
+
+    time_range = f"{event_start}"
+    if event_end:
+        time_range += f" to {event_end}"
+
     return (
-        f"Hello,\n\n"
+        f"Hello {user_name},\n\n"
         f"Your {event_category.lower()} has been successfully scheduled.\n\n"
         f"Title: {event_title}\n"
-        f"Date and time: {event_start}\n"
+        f"Time: {time_range}\n"
         f"Category: {event_category}\n"
+        f"{host_text}"
+        f"{guests_text}"
         f"{desc}\n"
         f"{link_text}"
         f"Thank you for using Shnoor Meetings!\n\n"
@@ -270,11 +307,14 @@ def process_pending_calendar_reminders():
             SELECT
                 calendar_events.id,
                 calendar_events.title,
+                calendar_events.description,
                 calendar_events.category,
                 calendar_events.start_time,
+                calendar_events.end_time,
                 calendar_events.room_id,
                 calendar_events.reminder_offset_minutes,
-                LOWER(BTRIM(COALESCE(calendar_events.recipient_email, users.email))) AS user_email
+                LOWER(BTRIM(COALESCE(calendar_events.recipient_email, users.email))) AS user_email,
+                users.name AS user_name
             FROM calendar_events
             LEFT JOIN users ON users.id = calendar_events.user_id
             WHERE calendar_events.reminder_sent_at IS NULL
