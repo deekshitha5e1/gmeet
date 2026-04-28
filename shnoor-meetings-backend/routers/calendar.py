@@ -229,10 +229,12 @@ async def create_event(event: CalendarEvent):
     if event.user_email and category in ["meetings", "meeting"]:
         event_dict = {
             "title": event.title,
+            "description": event.description,
             "category": category,
             "start_time": event.start_time,
             "room_id": room_id,
             "user_email": event.user_email,
+            "reminder_offset_minutes": event.reminder_offset_minutes
         }
         try:
             send_meeting_scheduled_email(event_dict)

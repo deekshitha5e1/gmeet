@@ -108,15 +108,18 @@ def _build_reminder_body(event: dict) -> str:
     frontend_url = (os.getenv("FRONTEND_URL") or "http://localhost:5173").rstrip("/")
     link_text = f"Join meeting here: {frontend_url}/meeting/{room_id}\n\n" if room_id else ""
 
+    desc = f"Description: {event.get('description')}\n" if event.get('description') else ""
+
     return (
         f"Hello,\n\n"
         f"You have a {event_category.lower()} scheduled in {offset_minutes} minutes.\n\n"
         f"Title: {event_title}\n"
         f"Date and time: {event_start}\n"
-        f"Category: {event_category}\n\n"
+        f"Category: {event_category}\n"
+        f"{desc}\n"
         f"{link_text}"
         f"Please be ready before it starts.\n\n"
-        f"Shnoor Meetings"
+        f"Shnoor Meetings Team"
     )
 
 
@@ -131,17 +134,21 @@ def _build_scheduled_body(event: dict) -> str:
     event_start = _format_event_start(event.get("start_time"))
     
     room_id = event.get("room_id")
-    frontend_url = (os.getenv("FRONTEND_URL") or "http://localhost:5173").rstrip("/")
+    frontend_url = (os.getenv("FRONTEND_URL") or "https://gmeet-wt19.vercel.app").rstrip("/")
     link_text = f"Join meeting here: {frontend_url}/meeting/{room_id}\n\n" if room_id else ""
+    
+    desc = f"Description: {event.get('description')}\n" if event.get('description') else ""
 
     return (
         f"Hello,\n\n"
         f"Your {event_category.lower()} has been successfully scheduled.\n\n"
         f"Title: {event_title}\n"
         f"Date and time: {event_start}\n"
-        f"Category: {event_category}\n\n"
+        f"Category: {event_category}\n"
+        f"{desc}\n"
         f"{link_text}"
-        f"Shnoor Meetings"
+        f"Thank you for using Shnoor Meetings!\n\n"
+        f"Shnoor Meetings Team"
     )
 
 
