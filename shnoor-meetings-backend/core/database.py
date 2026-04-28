@@ -1,465 +1,421 @@
 import os
 import uuid
-import psycopg2
-from psycopg2.pool import ThreadedConnectionPool
-from psycopg2.extras import RealDictCursor
+import logging
+import sqlite3
+import threading
+from typing import Optional, Union, Dict, Any
 from dotenv import load_dotenv
+
+# Optional psycopg2 support
+try:
+    import psycopg2
+    from psycopg2.pool import ThreadedConnectionPool
+    from psycopg2.extras import RealDictCursor
+    HAS_PSYCOPG2 = True
+except ImportError:
+    HAS_PSYCOPG2 = False
 
 load_dotenv()
 
-# We use the Connection Pooling URL from Supabase (Defaults to Port 6543)
-SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL")
+logger = logging.getLogger(__name__)
 
-# Global connection pool
-db_pool = None
+# Global connection pool or SQLite path
+_db_pool = None
+_sqlite_path = None
+_db_type = "postgres"  # or "sqlite"
 
+def get_db_type():
+    return _db_type
 
-def _build_connection_dsn():
-    if not SUPABASE_DB_URL:
-        return None
+def normalize_uuid_or_none(val):
+    if not val: return None
+    try:
+        return str(uuid.UUID(str(val)))
+    except ValueError:
+        # If it's not a valid UUID, return it as a string anyway if it's not empty
+        return str(val)
 
-    if "sslmode=" in SUPABASE_DB_URL:
-        return SUPABASE_DB_URL
+def generate_stable_uuid(*args):
+    import hashlib
+    seed = ":".join(str(arg) for arg in args)
+    return str(uuid.UUID(hashlib.md5(seed.encode("utf-8")).hexdigest()))
 
-    separator = "&" if "?" in SUPABASE_DB_URL else "?"
-    return f"{SUPABASE_DB_URL}{separator}sslmode=require"
+def _build_connection_dsn() -> Optional[str]:
+    # Priority 1: SUPABASE_DB_URL or DATABASE_URL (URIs)
+    url = os.getenv("SUPABASE_DB_URL") or os.getenv("DATABASE_URL")
+    if url:
+        if "sslmode=" not in url and "postgresql" in url:
+            separator = "&" if "?" in url else "?"
+            url = f"{url}{separator}sslmode=require"
+        return url
+
+    # Priority 2: Individual POSTGRES_* variables
+    host = os.getenv("POSTGRES_HOST")
+    if host:
+        import urllib.parse
+        user = os.getenv("POSTGRES_USER", "postgres")
+        password = os.getenv("POSTGRES_PASSWORD", "")
+        if "%" in password:
+            password = urllib.parse.unquote(password)
+        
+        port = os.getenv("POSTGRES_PORT", "5432")
+        dbname = os.getenv("POSTGRES_DB", "postgres")
+        return f"host={host} port={port} user={user} password={password} dbname={dbname} sslmode=require"
+
+    return None
 
 def init_db():
-    """
-    Initialize the connection pool. Called from main.py at startup.
-    Supabase handles table creation via SQL Editor, so we only setup the pool here.
-    """
-    global db_pool
-    connection_dsn = _build_connection_dsn()
+    global _db_pool, _sqlite_path, _db_type
+    
+    # Try PostgreSQL first
+    if HAS_PSYCOPG2:
+        dsn = _build_connection_dsn()
+        if dsn:
+            try:
+                _db_pool = ThreadedConnectionPool(1, 20, dsn=dsn)
+                _db_type = "postgres"
+                # Test connection
+                conn = _db_pool.getconn()
+                _db_pool.putconn(conn)
+                _ensure_tables()
+                logger.info("PostgreSQL connection pool initialized successfully.")
+                return
+            except Exception as e:
+                logger.error(f"PostgreSQL initialization failed: {e}")
+                if "Tenant or user not found" in str(e) and dsn and ":6543" in dsn:
+                    # Try direct fallback
+                    try:
+                        import re
+                        direct_dsn = dsn.replace(":6543", ":5432").replace(".pooler.supabase.com", ".supabase.co")
+                        match = re.search(r"postgres\.([a-z0-9]+)", dsn)
+                        if match:
+                            project_id = match.group(1)
+                            direct_dsn = re.sub(r"@[^:]+:", f"@db.{project_id}.supabase.co:", direct_dsn)
+                        
+                        _db_pool = ThreadedConnectionPool(1, 10, dsn=direct_dsn)
+                        _db_type = "postgres"
+                        _ensure_tables()
+                        logger.info("Connected via PostgreSQL direct fallback.")
+                        return
+                    except Exception as fe:
+                        logger.error(f"PostgreSQL direct fallback failed: {fe}")
 
-    if connection_dsn:
-        try:
-            # 1 = max connections, 20 = max connections in the python-level pool
-            db_pool = ThreadedConnectionPool(1, 20, dsn=connection_dsn)
-            _ensure_tables()
-            print("Database connection pool initialized successfully.")
-        except Exception as e:
-            print(f"Error initializing connection pool: {e}")
-    else:
-        print("WARNING: SUPABASE_DB_URL environment variable is not set. Database will not connect.")
+    # Fallback to SQLite
+    logger.info("Falling back to local SQLite database.")
+    _db_type = "sqlite"
+    # Create the database in the backend root directory
+    _sqlite_path = os.path.join(os.getcwd(), "shnoor_meetings.db")
+    _ensure_tables()
+    logger.info(f"SQLite initialized at {_sqlite_path}")
 
 def get_db_connection():
-    """
-    Get a connection from the Python connection pool.
-    """
-    if db_pool:
+    if _db_type == "postgres" and _db_pool:
         try:
-            return db_pool.getconn()
-        except Exception as e:
-            print(f"Failed to get connection from pool: {e}")
+            return _db_pool.getconn()
+        except Exception:
+            return None
+    elif _db_type == "sqlite":
+        try:
+            conn = sqlite3.connect(_sqlite_path)
+            conn.row_factory = sqlite3.Row
+            return conn
+        except Exception:
             return None
     return None
 
+def release_db_connection(conn):
+    if not conn:
+        return
+    if _db_type == "postgres" and _db_pool:
+        _db_pool.putconn(conn)
+    elif _db_type == "sqlite":
+        conn.close()
 
 def get_dict_cursor(conn):
-    return conn.cursor(cursor_factory=RealDictCursor)
+    if _db_type == "postgres":
+        return conn.cursor(cursor_factory=RealDictCursor)
+    return conn.cursor()
 
-
-def is_valid_uuid(value):
-    if not value:
-        return False
+def _ensure_tables():
+    conn = get_db_connection()
+    if not conn:
+        return
 
     try:
-        uuid.UUID(str(value))
-        return True
-    except (TypeError, ValueError):
-        return False
+        cursor = get_dict_cursor(conn)
+        
+        # SQLite compatible types
+        uuid_type = "UUID" if _db_type == "postgres" else "TEXT"
+        now_func = "NOW()" if _db_type == "postgres" else "CURRENT_TIMESTAMP"
+        
+        # Users Table
+        cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS users (
+                id {uuid_type} PRIMARY KEY,
+                firebase_uid TEXT UNIQUE,
+                name TEXT,
+                email TEXT UNIQUE,
+                profile_picture TEXT,
+                created_at TIMESTAMPTZ DEFAULT {now_func}
+            )
+        """)
 
+        # Meetings Table
+        cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS meetings (
+                id {uuid_type} PRIMARY KEY,
+                host_id {uuid_type} REFERENCES users(id),
+                title TEXT,
+                status TEXT DEFAULT 'inactive',
+                started_at TIMESTAMPTZ,
+                ended_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ DEFAULT {now_func}
+            )
+        """)
 
-def normalize_uuid_or_none(value):
-    if is_valid_uuid(value):
-        return str(uuid.UUID(str(value)))
-    return None
+        # Calendar Events Table
+        cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS calendar_events (
+                id {uuid_type} PRIMARY KEY,
+                user_id {uuid_type} REFERENCES users(id),
+                recipient_email TEXT,
+                title TEXT NOT NULL,
+                description TEXT,
+                start_time TIMESTAMPTZ NOT NULL,
+                end_time TIMESTAMPTZ,
+                category TEXT DEFAULT 'meetings',
+                room_id {uuid_type},
+                reminder_offset_minutes INTEGER DEFAULT 5,
+                reminder_sent_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ DEFAULT {now_func}
+            )
+        """)
 
+        # Column patches
+        if _db_type == "postgres":
+            for col in [("recipient_email", "TEXT"), ("end_time", "TIMESTAMPTZ"), ("description", "TEXT")]:
+                cursor.execute(f"""
+                    DO $$ BEGIN 
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='calendar_events' AND column_name='{col[0]}') THEN
+                            ALTER TABLE calendar_events ADD COLUMN {col[0]} {col[1]};
+                        END IF;
+                    END $$;
+                """)
+        else:
+            # SQLite doesn't have DO blocks, we check manually
+            for col_name in ["user_id", "recipient_email", "end_time", "description", "reminder_offset_minutes", "reminder_sent_at"]:
+                cursor.execute(f"PRAGMA table_info(calendar_events)")
+                cols = [row[1] for row in cursor.fetchall()]
+                if col_name not in cols:
+                    col_type = "INTEGER" if col_name == "reminder_offset_minutes" else "TEXT"
+                    cursor.execute(f"ALTER TABLE calendar_events ADD COLUMN {col_name} {col_type}")
 
-def generate_stable_uuid(*parts):
-    seed = ":".join(str(part) for part in parts if part is not None)
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, seed))
-
+        conn.commit()
+    except Exception as e:
+        logger.error(f"Error ensuring tables exist: {e}")
+        conn.rollback()
+    finally:
+        release_db_connection(conn)
 
 def get_or_create_user(user_id=None, firebase_uid=None, name=None, email=None, profile_picture=None):
     conn = get_db_connection()
-    if not conn:
-        raise RuntimeError("Database connection is unavailable")
-
-    normalized_user_id = normalize_uuid_or_none(user_id)
-    fallback_name = (name or email or "Guest").strip() or "Guest"
-    actual_email = (email or "").strip() or None
-
+    if not conn: return None
     try:
         cursor = get_dict_cursor(conn)
-        cursor.execute(
-            """
-            SELECT id
-            FROM users
-            WHERE (%s IS NOT NULL AND id = %s)
-               OR (%s IS NOT NULL AND firebase_uid = %s)
-               OR (%s IS NOT NULL AND email = %s)
-            ORDER BY created_at ASC NULLS LAST
-            LIMIT 1
-            """,
-            (
-                normalized_user_id,
-                normalized_user_id,
-                firebase_uid,
-                firebase_uid,
-                actual_email,
-                actual_email,
-            )
-        )
-        user = cursor.fetchone()
-        if user:
-            cursor.execute(
-                """
-                UPDATE users
-                SET firebase_uid = COALESCE(%s, firebase_uid),
-                    name = COALESCE(%s, name),
-                    email = COALESCE(%s, email),
-                    profile_picture = COALESCE(%s, profile_picture)
-                WHERE id = %s
-                """,
-                (firebase_uid, fallback_name, actual_email, profile_picture, user["id"])
-            )
-            conn.commit()
-            return str(user["id"])
+        user = None
+        p = "%s" if _db_type == "postgres" else "?"
+        
+        if user_id:
+            cursor.execute(f"SELECT * FROM users WHERE id = {p}", (str(user_id),))
+            user = cursor.fetchone()
+        elif firebase_uid:
+            cursor.execute(f"SELECT * FROM users WHERE firebase_uid = {p}", (firebase_uid,))
+            user = cursor.fetchone()
+        elif email:
+            cursor.execute(f"SELECT * FROM users WHERE email = {p}", (email.strip().lower(),))
+            user = cursor.fetchone()
 
-        if not normalized_user_id:
-            raise ValueError("A frontend-generated user ID is required to create a user record")
+        if user: return dict(user)
 
-        cursor.execute(
-            """
+        new_id = str(user_id or uuid.uuid4())
+        placeholders = "%s, %s, %s, %s, %s" if _db_type == 'postgres' else "?, ?, ?, ?, ?"
+        cursor.execute(f"""
             INSERT INTO users (id, firebase_uid, name, email, profile_picture)
-            VALUES (%s, %s, %s, %s, %s)
-            """,
-            (normalized_user_id, firebase_uid, fallback_name, actual_email, profile_picture)
-        )
+            VALUES ({placeholders})
+        """, (new_id, firebase_uid, name, email.strip().lower() if email else None, profile_picture))
         conn.commit()
-        return normalized_user_id
-    except Exception:
-        conn.rollback()
-        raise
+        return {"id": new_id, "firebase_uid": firebase_uid, "name": name, "email": email, "profile_picture": profile_picture}
     finally:
         release_db_connection(conn)
 
-
 def ensure_meeting_record(meeting_id, host_user_id=None, title=None, status=None, started_at=None, ended_at=None):
-    normalized_meeting_id = normalize_uuid_or_none(meeting_id)
-    if not normalized_meeting_id:
-        return None
-
+    mid = normalize_uuid_or_none(meeting_id)
+    if not mid: return None
     conn = get_db_connection()
-    if not conn:
-        raise RuntimeError("Database connection is unavailable")
-
+    if not conn: return None
     try:
         cursor = get_dict_cursor(conn)
-        cursor.execute("SELECT * FROM meetings WHERE id = %s", (normalized_meeting_id,))
+        p = "%s" if _db_type == "postgres" else "?"
+        cursor.execute(f"SELECT * FROM meetings WHERE id = {p}", (mid,))
         existing = cursor.fetchone()
 
         if existing:
-            cursor.execute(
-                """
-                UPDATE meetings
-                SET host_id = COALESCE(%s, host_id),
-                    title = COALESCE(%s, title),
-                    status = COALESCE(%s, status),
-                    started_at = COALESCE(%s, started_at),
-                    ended_at = COALESCE(%s, ended_at)
-                WHERE id = %s
-                """,
-                (host_user_id, title, status, started_at, ended_at, normalized_meeting_id)
-            )
+            if _db_type == "postgres":
+                cursor.execute("""
+                    UPDATE meetings
+                    SET host_id = COALESCE(%s, host_id),
+                        title = COALESCE(%s, title),
+                        status = COALESCE(%s, status),
+                        started_at = COALESCE(%s, started_at),
+                        ended_at = COALESCE(%s, ended_at)
+                    WHERE id = %s
+                """, (host_user_id, title, status, started_at, ended_at, mid))
+            else:
+                cursor.execute("""
+                    UPDATE meetings
+                    SET host_id = IFNULL(?, host_id),
+                        title = IFNULL(?, title),
+                        status = IFNULL(?, status),
+                        started_at = IFNULL(?, started_at),
+                        ended_at = IFNULL(?, ended_at)
+                    WHERE id = ?
+                """, (host_user_id, title, status, started_at, ended_at, mid))
             conn.commit()
-            return normalized_meeting_id
+            return mid
 
-        cursor.execute(
-            """
+        placeholders = "%s, %s, %s, %s, %s, %s" if _db_type == "postgres" else "?, ?, ?, ?, ?, ?"
+        cursor.execute(f"""
             INSERT INTO meetings (id, host_id, title, status, started_at, ended_at)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            """,
-            (normalized_meeting_id, host_user_id, title, status or "inactive", started_at, ended_at)
-        )
+            VALUES ({placeholders})
+        """, (mid, host_user_id, title, status or "inactive", started_at, ended_at))
         conn.commit()
-        return normalized_meeting_id
-    except Exception:
-        conn.rollback()
-        raise
+        return mid
     finally:
         release_db_connection(conn)
 
-
 def get_meeting_record(meeting_id):
-    normalized_meeting_id = normalize_uuid_or_none(meeting_id)
-    if not normalized_meeting_id:
-        return None
-
+    mid = normalize_uuid_or_none(meeting_id)
+    if not mid: return None
     conn = get_db_connection()
-    if not conn:
-        raise RuntimeError("Database connection is unavailable")
-
+    if not conn: return None
     try:
         cursor = get_dict_cursor(conn)
-        cursor.execute(
-            """
-            SELECT
-                meetings.*,
-                users.email AS host_email,
-                users.name AS host_name
+        p = "%s" if _db_type == "postgres" else "?"
+        cursor.execute(f"""
+            SELECT meetings.*, users.email AS host_email, users.name AS host_name
             FROM meetings
             LEFT JOIN users ON users.id = meetings.host_id
-            WHERE meetings.id = %s
-            """,
-            (normalized_meeting_id,),
-        )
+            WHERE meetings.id = {p}
+        """, (mid,))
         row = cursor.fetchone()
         return dict(row) if row else None
     finally:
         release_db_connection(conn)
 
-
 def update_meeting_activity(meeting_id):
-    normalized_meeting_id = normalize_uuid_or_none(meeting_id)
-    if not normalized_meeting_id:
-        return
-
+    mid = normalize_uuid_or_none(meeting_id)
+    if not mid: return
     conn = get_db_connection()
-    if not conn:
-        raise RuntimeError("Database connection is unavailable")
-
+    if not conn: return
     try:
         cursor = get_dict_cursor(conn)
-        cursor.execute(
-            """
-            SELECT COUNT(*) AS active_count
-            FROM participants
-            WHERE meeting_id = %s AND left_at IS NULL
-            """,
-            (normalized_meeting_id,)
-        )
-        active_count = cursor.fetchone()["active_count"]
+        p = "%s" if _db_type == "postgres" else "?"
+        cursor.execute(f"SELECT COUNT(*) AS active_count FROM participants WHERE meeting_id = {p} AND left_at IS NULL", (mid,))
+        active_count = cursor.fetchone()[0] if _db_type == "sqlite" else cursor.fetchone()["active_count"]
 
+        now_val = "NOW()" if _db_type == "postgres" else "CURRENT_TIMESTAMP"
         if active_count > 0:
-            cursor.execute(
-                """
+            cursor.execute(f"""
                 UPDATE meetings
                 SET status = 'active',
-                    started_at = COALESCE(started_at, NOW()),
+                    started_at = COALESCE(started_at, {now_val}),
                     ended_at = NULL
-                WHERE id = %s
-                """,
-                (normalized_meeting_id,)
-            )
+                WHERE id = {p}
+            """, (mid,))
         else:
-            cursor.execute(
-                """
+            cursor.execute(f"""
                 UPDATE meetings
                 SET status = 'inactive',
-                    ended_at = NOW()
-                WHERE id = %s
-                """,
-                (normalized_meeting_id,)
-            )
+                    ended_at = {now_val}
+                WHERE id = {p}
+            """, (mid,))
         conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
     finally:
         release_db_connection(conn)
-
 
 def upsert_participant_record(meeting_id, user_id, role="participant", joined_at=None):
-    normalized_meeting_id = normalize_uuid_or_none(meeting_id)
-    normalized_user_id = normalize_uuid_or_none(user_id)
-    if not normalized_meeting_id or not normalized_user_id:
-        return None
-
-    participant_id = generate_stable_uuid("participant", normalized_meeting_id, normalized_user_id)
+    mid = normalize_uuid_or_none(meeting_id)
+    uid = normalize_uuid_or_none(user_id)
+    if not mid or not uid: return None
+    
+    participant_id = generate_stable_uuid("participant", mid, uid)
     role_name = (role or "participant").strip().lower()
-
+    
     conn = get_db_connection()
-    if not conn:
-        raise RuntimeError("Database connection is unavailable")
-
+    if not conn: return None
     try:
         cursor = get_dict_cursor(conn)
-        cursor.execute(
-            """
-            INSERT INTO participants (id, meeting_id, user_id, role, joined_at)
-            VALUES (%s, %s, %s, %s, COALESCE(%s::timestamptz, NOW()))
-            ON CONFLICT (id)
-            DO UPDATE SET
-                role = EXCLUDED.role,
-                joined_at = COALESCE(EXCLUDED.joined_at, participants.joined_at, NOW()),
-                left_at = NULL
-            """,
-            (participant_id, normalized_meeting_id, normalized_user_id, role_name, joined_at)
-        )
+        now_val = "NOW()" if _db_type == "postgres" else "CURRENT_TIMESTAMP"
+        
+        if _db_type == "postgres":
+            cursor.execute("""
+                INSERT INTO participants (id, meeting_id, user_id, role, joined_at)
+                VALUES (%s, %s, %s, %s, COALESCE(%s::timestamptz, NOW()))
+                ON CONFLICT (id)
+                DO UPDATE SET
+                    role = EXCLUDED.role,
+                    joined_at = COALESCE(EXCLUDED.joined_at, participants.joined_at, NOW()),
+                    left_at = NULL
+            """, (participant_id, mid, uid, role_name, joined_at))
+        else:
+            # SQLite ON CONFLICT
+            cursor.execute("""
+                INSERT INTO participants (id, meeting_id, user_id, role, joined_at)
+                VALUES (?, ?, ?, ?, IFNULL(?, CURRENT_TIMESTAMP))
+                ON CONFLICT (id) DO UPDATE SET
+                    role = excluded.role,
+                    joined_at = IFNULL(excluded.joined_at, participants.joined_at),
+                    left_at = NULL
+            """, (participant_id, mid, uid, role_name, joined_at))
+            
         conn.commit()
-        update_meeting_activity(normalized_meeting_id)
+        update_meeting_activity(mid)
         return participant_id
-    except Exception:
-        conn.rollback()
-        raise
     finally:
         release_db_connection(conn)
-
 
 def mark_participant_left(meeting_id, user_id):
-    normalized_meeting_id = normalize_uuid_or_none(meeting_id)
-    normalized_user_id = normalize_uuid_or_none(user_id)
-    if not normalized_meeting_id or not normalized_user_id:
-        return
-
+    mid = normalize_uuid_or_none(meeting_id)
+    uid = normalize_uuid_or_none(user_id)
+    if not mid or not uid: return
     conn = get_db_connection()
-    if not conn:
-        return
-
+    if not conn: return
     try:
         cursor = get_dict_cursor(conn)
-        cursor.execute(
-            """
-            UPDATE participants
-            SET left_at = NOW()
-            WHERE meeting_id = %s AND user_id = %s AND left_at IS NULL
-            """,
-            (normalized_meeting_id, normalized_user_id)
-        )
+        p = "%s" if _db_type == "postgres" else "?"
+        now_val = "NOW()" if _db_type == "postgres" else "CURRENT_TIMESTAMP"
+        cursor.execute(f"UPDATE participants SET left_at = {now_val} WHERE meeting_id = {p} AND user_id = {p} AND left_at IS NULL", (mid, uid))
         conn.commit()
-        update_meeting_activity(normalized_meeting_id)
-    except Exception:
-        conn.rollback()
-        raise
+        update_meeting_activity(mid)
     finally:
         release_db_connection(conn)
-
 
 def save_chat_message(meeting_id, sender_id, message, sent_at=None):
-    normalized_meeting_id = normalize_uuid_or_none(meeting_id)
-    normalized_sender_id = normalize_uuid_or_none(sender_id)
-    if not normalized_meeting_id or not normalized_sender_id or not message:
-        return None
-
+    mid = normalize_uuid_or_none(meeting_id)
+    sid = normalize_uuid_or_none(sender_id)
+    if not mid or not sid or not message: return None
     conn = get_db_connection()
-    if not conn:
-        raise RuntimeError("Database connection is unavailable")
-
+    if not conn: return None
     try:
-        message_timestamp = sent_at or None
-        chat_id = generate_stable_uuid(normalized_meeting_id, normalized_sender_id, message, message_timestamp or "now")
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                INSERT INTO meeting_chats (id, meeting_id, sender_id, message, sent_at)
-                VALUES (%s, %s, %s, %s, COALESCE(%s::timestamptz, NOW()))
-                """,
-                (chat_id, normalized_meeting_id, normalized_sender_id, message, message_timestamp)
-            )
+        chat_id = generate_stable_uuid(mid, sid, message, sent_at or "now")
+        cursor = get_dict_cursor(conn)
+        p = "%s" if _db_type == "postgres" else "?"
+        now_val = "NOW()" if _db_type == "postgres" else "CURRENT_TIMESTAMP"
+        cursor.execute(f"""
+            INSERT INTO meeting_chats (id, meeting_id, sender_id, message, sent_at)
+            VALUES ({p}, {p}, {p}, {p}, COALESCE({p}{'::timestamptz' if _db_type == 'postgres' else ''}, {now_val}))
+        """, (chat_id, mid, sid, message, sent_at))
         conn.commit()
         return chat_id
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        release_db_connection(conn)
-
-def release_db_connection(conn):
-    """
-    Return a connection back to the pool so it can be reused by another request.
-    """
-    if db_pool and conn:
-        db_pool.putconn(conn)
-
-
-def _ensure_tables():
-    conn = get_db_connection()
-    if not conn:
-        raise RuntimeError("Database connection pool is not available.")
-
-    try:
-        with conn.cursor() as cursor:
-            # Users Table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id UUID PRIMARY KEY,
-                    firebase_uid TEXT UNIQUE,
-                    name TEXT,
-                    email TEXT UNIQUE,
-                    profile_picture TEXT,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-
-            # Meetings Table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS meetings (
-                    id UUID PRIMARY KEY,
-                    host_id UUID REFERENCES users(id),
-                    title TEXT,
-                    status TEXT DEFAULT 'inactive',
-                    started_at TIMESTAMPTZ,
-                    ended_at TIMESTAMPTZ,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-
-            # Calendar Events Table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS calendar_events (
-                    id UUID PRIMARY KEY,
-                    user_id UUID REFERENCES users(id),
-                    recipient_email TEXT,
-                    title TEXT NOT NULL,
-                    description TEXT,
-                    start_time TIMESTAMPTZ NOT NULL,
-                    end_time TIMESTAMPTZ,
-                    category TEXT DEFAULT 'meetings',
-                    room_id UUID,
-                    reminder_offset_minutes INTEGER DEFAULT 5,
-                    reminder_sent_at TIMESTAMPTZ,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-
-            # Patch existing tables if they were created by older versions
-            # Add recipient_email if missing
-            cursor.execute("""
-                DO $$ 
-                BEGIN 
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='calendar_events' AND column_name='recipient_email') THEN
-                        ALTER TABLE calendar_events ADD COLUMN recipient_email TEXT;
-                    END IF;
-                END $$;
-            """)
-
-            # Add end_time if missing
-            cursor.execute("""
-                DO $$ 
-                BEGIN 
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='calendar_events' AND column_name='end_time') THEN
-                        ALTER TABLE calendar_events ADD COLUMN end_time TIMESTAMPTZ;
-                    END IF;
-                END $$;
-            """)
-            
-            # Add description if missing
-            cursor.execute("""
-                DO $$ 
-                BEGIN 
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='calendar_events' AND column_name='description') THEN
-                        ALTER TABLE calendar_events ADD COLUMN description TEXT;
-                    END IF;
-                END $$;
-            """)
-
-        conn.commit()
-    except Exception as e:
-        print(f"Error ensuring tables exist: {e}")
-        if conn:
-            conn.rollback()
     finally:
         release_db_connection(conn)

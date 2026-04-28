@@ -67,6 +67,16 @@ async def startup_background_workers():
 async def shutdown_background_workers():
     stop_calendar_reminder_worker()
 
+@app.get("/api/health")
+async def health_check():
+    from core.database import get_db_connection
+    conn = get_db_connection()
+    db_status = "connected" if conn else "disconnected"
+    if conn:
+        from core.database import release_db_connection
+        release_db_connection(conn)
+    return {"status": "ok", "database": db_status}
+
 @app.get("/")
 async def root():
     return {"message": "Welcome to the Shnoor Meetings API"}

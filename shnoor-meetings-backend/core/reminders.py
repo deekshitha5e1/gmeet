@@ -301,39 +301,71 @@ def process_pending_calendar_reminders():
         return
 
     try:
+        from core.database import get_db_type
+        db_type = get_db_type()
         cursor = get_dict_cursor(conn)
-        cursor.execute(
-            """
-            SELECT
-                calendar_events.id,
-                calendar_events.title,
-                calendar_events.description,
-                calendar_events.category,
-                calendar_events.start_time,
-                calendar_events.end_time,
-                calendar_events.room_id,
-                calendar_events.reminder_offset_minutes,
-                LOWER(BTRIM(COALESCE(calendar_events.recipient_email, users.email))) AS user_email,
-                users.name AS user_name
-            FROM calendar_events
-            LEFT JOIN users ON users.id = calendar_events.user_id
-            WHERE calendar_events.reminder_sent_at IS NULL
-              AND COALESCE(calendar_events.recipient_email, users.email) IS NOT NULL
-              AND (calendar_events.start_time - make_interval(mins => COALESCE(calendar_events.reminder_offset_minutes, %s))) <= NOW()
-              AND calendar_events.start_time >= (NOW() - make_interval(mins => %s))
-              AND LOWER(COALESCE(calendar_events.category, 'meetings')) IN ('meetings', 'meeting', 'personal', 'reminders', 'reminder', 'remainder', 'remainders')
-            ORDER BY calendar_events.start_time ASC
-            """,
-            (DEFAULT_REMINDER_OFFSET_MINUTES, REMINDER_GRACE_WINDOW_MINUTES),
-        )
+        
+        if db_type == "postgres":
+            cursor.execute(
+                """
+                SELECT
+                    calendar_events.id,
+                    calendar_events.title,
+                    calendar_events.description,
+                    calendar_events.category,
+                    calendar_events.start_time,
+                    calendar_events.end_time,
+                    calendar_events.room_id,
+                    calendar_events.reminder_offset_minutes,
+                    LOWER(BTRIM(COALESCE(calendar_events.recipient_email, users.email))) AS user_email,
+                    users.name AS user_name
+                FROM calendar_events
+                LEFT JOIN users ON users.id = calendar_events.user_id
+                WHERE calendar_events.reminder_sent_at IS NULL
+                  AND COALESCE(calendar_events.recipient_email, users.email) IS NOT NULL
+                  AND (calendar_events.start_time - make_interval(mins => COALESCE(calendar_events.reminder_offset_minutes, %s))) <= NOW()
+                  AND calendar_events.start_time >= (NOW() - make_interval(mins => %s))
+                  AND LOWER(COALESCE(calendar_events.category, 'meetings')) IN ('meetings', 'meeting', 'personal', 'reminders', 'reminder', 'remainder', 'remainders')
+                ORDER BY calendar_events.start_time ASC
+                """,
+                (DEFAULT_REMINDER_OFFSET_MINUTES, REMINDER_GRACE_WINDOW_MINUTES),
+            )
+        else:
+            # SQLite version
+            cursor.execute(
+                """
+                SELECT
+                    calendar_events.id,
+                    calendar_events.title,
+                    calendar_events.description,
+                    calendar_events.category,
+                    calendar_events.start_time,
+                    calendar_events.end_time,
+                    calendar_events.room_id,
+                    calendar_events.reminder_offset_minutes,
+                    LOWER(TRIM(IFNULL(calendar_events.recipient_email, users.email))) AS user_email,
+                    users.name AS user_name
+                FROM calendar_events
+                LEFT JOIN users ON users.id = calendar_events.user_id
+                WHERE calendar_events.reminder_sent_at IS NULL
+                  AND IFNULL(calendar_events.recipient_email, users.email) IS NOT NULL
+                  AND datetime(calendar_events.start_time, '-' || IFNULL(calendar_events.reminder_offset_minutes, ?) || ' minutes') <= CURRENT_TIMESTAMP
+                  AND calendar_events.start_time >= datetime(CURRENT_TIMESTAMP, '-' || ? || ' minutes')
+                  AND LOWER(IFNULL(calendar_events.category, 'meetings')) IN ('meetings', 'meeting', 'personal', 'reminders', 'reminder', 'remainder', 'remainders')
+                ORDER BY calendar_events.start_time ASC
+                """,
+                (DEFAULT_REMINDER_OFFSET_MINUTES, REMINDER_GRACE_WINDOW_MINUTES),
+            )
         pending_events = cursor.fetchall()
 
         for event in pending_events:
             event_data = dict(event)
             try:
                 send_calendar_reminder_email(event_data)
+                now_val = "NOW()" if db_type == "postgres" else "CURRENT_TIMESTAMP"
+                p = "%s" if db_type == "postgres" else "?"
                 cursor.execute(
-                    "UPDATE calendar_events SET reminder_sent_at = NOW() WHERE id = %s",
+                    f"UPDATE calendar_events SET reminder_sent_at = {now_val} WHERE id = {p}",
                     (event_data["id"],),
                 )
                 conn.commit()
