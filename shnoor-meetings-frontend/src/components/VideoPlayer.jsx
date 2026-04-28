@@ -10,6 +10,7 @@ const VideoPlayer = React.memo(({
   isLocal = false,
   isHandRaised = false,
   isSpeaking = false,
+  audioLevel = 0,
   isVideoEnabled = true,
   isAudioEnabled = true,
   featured = false,
@@ -60,11 +61,19 @@ const VideoPlayer = React.memo(({
         />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
-          <ProfileAvatar
-            name={label}
-            picture={picture}
-            className={featured ? 'h-32 w-32' : 'h-16 w-16'}
-          />
+          <div 
+             className="rounded-full transition-all duration-75 ease-out"
+             style={{ 
+               transform: `scale(${1 + Math.min(audioLevel * 1.5, 0.3)})`,
+               boxShadow: audioLevel > 0.03 ? `0 0 0 ${Math.min(audioLevel * 20, 12)}px rgba(255, 255, 255, 0.6)` : 'none'
+             }}
+           >
+             <ProfileAvatar
+               name={label}
+               picture={picture}
+               className={featured ? 'h-32 w-32' : 'h-16 w-16'}
+             />
+          </div>
         </div>
       )}
 

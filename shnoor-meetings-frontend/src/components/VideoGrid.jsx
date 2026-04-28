@@ -63,6 +63,7 @@ const VideoGrid = React.memo(({
             key={tile.id}
             {...tile}
             isSpeaking={speakingIds.has(tile.id)}
+            audioLevel={audioLevels[tile.id] || 0}
             featured={tile.id === dominantSpeakerId}
           />
         ))}

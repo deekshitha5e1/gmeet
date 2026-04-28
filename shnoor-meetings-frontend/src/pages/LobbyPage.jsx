@@ -205,7 +205,7 @@ export default function LobbyPage() {
     setParticipantName(trimmedName);
     setIsWaiting(true);
     requestToJoin(trimmedName);
-    showToast("Waiting for host to accept...");
+    showToast("The host will let you in soon, please wait.");
   };
 
   const joinMeeting = () => {
@@ -400,12 +400,12 @@ export default function LobbyPage() {
                   disabled={isWaiting || !participantName.trim()}
                   className={`w-full font-semibold py-3.5 rounded-full shadow-lg transition-all transform active:scale-95 text-md ${isWaiting ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-100'}`}
                 >
-                  {isWaiting ? 'Waiting to be let in...' : 'Ask to join'}
+                  {isWaiting ? 'Asking to join...' : 'Ask to join'}
                 </button>
 
                 {isWaiting && (
-                  <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
-                    Waiting for host to accept...
+                  <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700 text-center font-medium animate-pulse">
+                    The host will let you in soon, please wait.
                   </div>
                 )}
                 

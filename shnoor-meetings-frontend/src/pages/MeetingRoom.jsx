@@ -8,7 +8,7 @@ import ChatPanel from '../components/ChatPanel';
 import ParticipantsList from '../components/ParticipantsList';
 import PipPopup from '../components/PipPopup';
 import InPagePip from '../components/InPagePip';
-import { Info, Video, Maximize2 } from 'lucide-react';
+import { Info, Video, Maximize2, Copy } from 'lucide-react';
 import { getCurrentUser } from '../utils/currentUser';
 
 const MeetingRoom = () => {
@@ -94,7 +94,22 @@ const MeetingRoom = () => {
           <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse" />
           <span className="font-bold tracking-tight">Shnoor Meetings</span>
           <div className="h-4 w-[1px] bg-gray-800 mx-2" />
-          <span className="text-xs text-gray-500 font-mono select-all cursor-pointer hover:text-gray-300">ID: {roomId}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 font-mono select-all hover:text-gray-300">ID: {roomId}</span>
+            {isHost && (
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.origin}/meeting/${roomId}`);
+                  alert('Meeting link copied to clipboard!');
+                }}
+                className="ml-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg flex items-center gap-1.5 text-xs font-semibold transition-colors"
+                title="Copy Meeting Link"
+              >
+                <Copy size={14} />
+                Copy Link
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
