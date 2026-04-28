@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-white text-gray-900 font-sans antialiased;
+  }
+}
+
+body[data-theme='dark'] {
+  background: #030712;
+  color: #e5e7eb;
+}
+
+body[data-theme='dark'] .bg-white,
+body[data-theme='dark'] .bg-gray-50 {
+  background-color: #111827 !important;
+}
+
+body[data-theme='dark'] .bg-gray-100 {
+  background-color: #1f2937 !important;
+}
+
+body[data-theme='dark'] .bg-gray-200 {
+  background-color: #374151 !important;
+}
+
+body[data-theme='dark'] .text-gray-900,
+body[data-theme='dark'] .text-gray-800,
+body[data-theme='dark'] .text-gray-700 {
+  color: #f3f4f6 !important;
+}
+
+body[data-theme='dark'] .text-gray-600,
+body[data-theme='dark'] .text-gray-500,
+body[data-theme='dark'] .text-gray-400 {
+  color: #d1d5db !important;
+}
+
+body[data-theme='dark'] .border-gray-50,
+body[data-theme='dark'] .border-gray-100,
+body[data-theme='dark'] .border-gray-200,
+body[data-theme='dark'] .border-gray-300 {
+  border-color: #374151 !important;
+}
+
+body[data-theme='dark'] input,
+body[data-theme='dark'] textarea,
+body[data-theme='dark'] select {
+  color: #f3f4f6;
+}
+
+.pill-container {
+  @apply flex items-center bg-white border border-gray-300 rounded-lg p-1 shadow-sm focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all;
+}
+
+.google-blue-btn {
+  @apply bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-6 rounded-lg shadow-sm transition-all focus:ring-4 focus:ring-blue-100;
+}

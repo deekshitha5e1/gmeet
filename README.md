@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+websockets
+python-dotenv
+pydantic
+faster-whisper
+aiofiles
+psycopg2-binary
+resend
