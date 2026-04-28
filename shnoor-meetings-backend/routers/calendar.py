@@ -47,6 +47,7 @@ class CalendarEvent(BaseModel):
     end_time: datetime
     category: str = "meetings"
     room_id: Optional[str] = None
+    reminder_offset_minutes: Optional[int] = 5
 
 class CreateEventResponse(BaseModel):
     id: str
@@ -153,7 +154,8 @@ async def get_events(
                 start_time=row["start_time"],
                 end_time=row["end_time"],
                 category=normalize_event_category(row["category"]),
-                room_id=row["room_id"]
+                room_id=row["room_id"],
+                reminder_offset_minutes=row.get("reminder_offset_minutes", DEFAULT_REMINDER_OFFSET_MINUTES)
             )
         )
     return events
@@ -206,7 +208,7 @@ async def create_event(event: CalendarEvent):
                 event.end_time,
                 category,
                 room_id,
-                DEFAULT_REMINDER_OFFSET_MINUTES,
+                event.reminder_offset_minutes or DEFAULT_REMINDER_OFFSET_MINUTES,
             )
         )
         conn.commit()
@@ -311,7 +313,7 @@ async def update_event(id: str, event: CalendarEvent):
                 event.end_time,
                 category,
                 room_id,
-                DEFAULT_REMINDER_OFFSET_MINUTES,
+                event.reminder_offset_minutes or DEFAULT_REMINDER_OFFSET_MINUTES,
                 id,
             )
         )
