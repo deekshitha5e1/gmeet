@@ -145,16 +145,16 @@ async def get_events(
         guest_emails = emails_list[1:] if len(emails_list) > 1 else []
         events.append(
             CalendarEvent(
-                id=row["id"],
-                user_id=row["user_id"],
+                id=str(row.get("id")),
+                user_id=str(row.get("user_id")) if row.get("user_id") else None,
                 user_email=host_email,
                 guest_emails=guest_emails,
-                title=row["title"],
-                description=row["description"],
-                start_time=row["start_time"],
-                end_time=row["end_time"],
-                category=normalize_event_category(row["category"]),
-                room_id=row["room_id"],
+                title=row.get("title") or "Untitled",
+                description=row.get("description") or "",
+                start_time=row.get("start_time"),
+                end_time=row.get("end_time"),
+                category=normalize_event_category(row.get("category")),
+                room_id=str(row.get("room_id")) if row.get("room_id") else None,
                 reminder_offset_minutes=row.get("reminder_offset_minutes", DEFAULT_REMINDER_OFFSET_MINUTES)
             )
         )

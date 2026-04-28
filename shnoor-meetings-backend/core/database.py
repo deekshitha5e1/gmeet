@@ -424,9 +424,42 @@ def _ensure_tables():
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
+
+            # Patch existing tables if they were created by older versions
+            # Add recipient_email if missing
+            cursor.execute("""
+                DO $$ 
+                BEGIN 
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='calendar_events' AND column_name='recipient_email') THEN
+                        ALTER TABLE calendar_events ADD COLUMN recipient_email TEXT;
+                    END IF;
+                END $$;
+            """)
+
+            # Add end_time if missing
+            cursor.execute("""
+                DO $$ 
+                BEGIN 
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='calendar_events' AND column_name='end_time') THEN
+                        ALTER TABLE calendar_events ADD COLUMN end_time TIMESTAMPTZ;
+                    END IF;
+                END $$;
+            """)
+            
+            # Add description if missing
+            cursor.execute("""
+                DO $$ 
+                BEGIN 
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='calendar_events' AND column_name='description') THEN
+                        ALTER TABLE calendar_events ADD COLUMN description TEXT;
+                    END IF;
+                END $$;
+            """)
+
         conn.commit()
     except Exception as e:
         print(f"Error ensuring tables exist: {e}")
-        conn.rollback()
+        if conn:
+            conn.rollback()
     finally:
         release_db_connection(conn)
