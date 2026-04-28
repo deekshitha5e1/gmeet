@@ -15,10 +15,10 @@
   "type": "commonjs",
   "dependencies": {
     "react": "^19.2.5",
-    "react-dom": "^19.2.5",
-    "vite": "^8.0.8"
+    "react-dom": "^19.2.5"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "concurrently": "^9.2.1",
+    "vite": "^8.0.10"
   }
 }
