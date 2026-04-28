@@ -337,7 +337,7 @@ export default function LobbyPage() {
           </div>
 
           <div className="w-full space-y-4 pt-4">
-            {isHost ? (
+            {(isHost || resolvedRole === 'host') ? (
               <div className="space-y-4 w-full">
                 <button 
                   onClick={joinMeeting}
