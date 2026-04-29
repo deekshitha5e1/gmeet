@@ -17,18 +17,22 @@ const VideoGrid = React.memo(({
   
   // Transform data into a stable format for the grid
   const tiles = useMemo(() => {
-    const remoteTiles = Object.entries(remoteStreams).map(([peerId, stream]) => ({
-      id: peerId,
-      stream,
-      label: participantsMetadata[peerId]?.name || 'Participant',
-      picture: participantsMetadata[peerId]?.picture,
-      isHost: participantsMetadata[peerId]?.role === 'host',
-      isLocal: false,
-      isHandRaised: participantsMetadata[peerId]?.isHandRaised,
-      isAudioEnabled: participantsMetadata[peerId]?.isAudioEnabled ?? true,
-      isVideoEnabled: participantsMetadata[peerId]?.isVideoEnabled ?? true,
-    }));
+    // 1. Get all remote participants from metadata
+    const remoteTiles = Object.entries(participantsMetadata)
+      .filter(([id]) => id !== localClientId) // Exclude local user
+      .map(([peerId, meta]) => ({
+        id: peerId,
+        stream: remoteStreams[peerId] || null,
+        label: meta.name || 'Participant',
+        picture: meta.picture,
+        isHost: meta.role === 'host',
+        isLocal: false,
+        isHandRaised: meta.isHandRaised,
+        isAudioEnabled: meta.isAudioEnabled ?? true,
+        isVideoEnabled: meta.isVideoEnabled ?? true,
+      }));
 
+    // 2. Add the local user tile
     const localTile = {
       id: localClientId,
       stream: localStream,
@@ -42,7 +46,7 @@ const VideoGrid = React.memo(({
     };
 
     return [localTile, ...remoteTiles];
-  }, [remoteStreams, participantsMetadata, localClientId, localStream, displayName, isHandRaised, isAudioEnabled, isVideoEnabled]);
+  }, [participantsMetadata, localClientId, localStream, remoteStreams, displayName, isHandRaised, isAudioEnabled, isVideoEnabled]);
 
   // Optimized Speaker Detection
   const { dominantSpeakerId, speakingIds, audioLevels } = useActiveSpeaker(tiles, getPeerConnection);

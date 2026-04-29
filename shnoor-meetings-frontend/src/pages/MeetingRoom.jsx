@@ -161,30 +161,44 @@ const MeetingRoom = () => {
         )}
 
         <div className={`flex-1 flex flex-col relative min-w-0 transition-opacity duration-500 ${pipMode === PIP_MODES.MINIMIZED ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-          {mediaError ? (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center gap-4">
-              <div className="p-6 bg-red-500/10 rounded-full border border-red-500/20">
-                <Video size={48} className="text-red-500" />
-              </div>
-              <h2 className="text-xl font-semibold">Camera Access Required</h2>
-              <p className="text-gray-400 max-w-sm text-sm">Please enable camera and microphone permissions in your browser settings to join the call.</p>
-              <button onClick={() => window.location.reload()} className="px-6 py-2 bg-blue-600 rounded-full text-sm font-bold">Retry Access</button>
-            </div>
-          ) : (
-            <VideoGrid
-              localStream={localStream}
-              remoteStreams={remoteStreams}
-              participantsMetadata={participantsMetadata}
-              localClientId={localClientId}
-              isAudioEnabled={isAudioEnabled}
-              isVideoEnabled={isVideoEnabled}
-              isHandRaised={isHandRaised}
-              isSharingScreen={isSharingScreen}
-              displayName={currentUser?.name || 'Me'}
-              getPeerConnection={getPeerConnection}
-            />
-          )}
+          <VideoGrid
+            localStream={localStream}
+            remoteStreams={remoteStreams}
+            participantsMetadata={participantsMetadata}
+            localClientId={localClientId}
+            isAudioEnabled={isAudioEnabled}
+            isVideoEnabled={isVideoEnabled}
+            isHandRaised={isHandRaised}
+            isSharingScreen={isSharingScreen}
+            displayName={currentUser?.name || 'Me'}
+            getPeerConnection={getPeerConnection}
+          />
 
+          {mediaError && (
+            <div className="absolute inset-0 z-40 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm">
+              <div className="bg-gray-800 p-8 rounded-3xl border border-gray-700 shadow-2xl flex flex-col items-center gap-6 max-w-sm text-center">
+                <div className="p-4 bg-red-500/10 rounded-full border border-red-500/20">
+                  <Video size={32} className="text-red-500" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white mb-2">Camera Access Required</h2>
+                  <p className="text-gray-400 text-sm">
+                    {mediaError === 'Permission Denied' 
+                      ? 'You have blocked camera/mic access. Please update your browser settings to join with video.' 
+                      : 'We couldn\'t find your camera or microphone. You can still participate in view-only mode.'}
+                  </p>
+                </div>
+                <div className="flex flex-col w-full gap-2">
+                  <button onClick={() => window.location.reload()} className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-bold transition-colors">
+                    Retry Access
+                  </button>
+                  <button onClick={() => setMediaError(null)} className="w-full py-2.5 bg-gray-700 hover:bg-gray-600 text-white rounded-xl text-sm font-bold transition-colors">
+                    Continue anyway
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           {isCaptionsOn && captions && (
             <div className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur px-6 py-3 rounded-2xl text-center max-w-2xl shadow-2xl border border-white/5 animate-in fade-in slide-in-from-bottom-4">
               <p className="text-sm font-medium leading-relaxed">{captions}</p>
