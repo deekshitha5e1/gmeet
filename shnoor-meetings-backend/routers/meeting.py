@@ -47,7 +47,9 @@ async def create_meeting(payload: CreateMeetingRequest | None = None):
 
         ensure_meeting_record(meeting_id=room_id, host_user_id=host_id)
     except Exception as e:
+        import traceback
         print(f"Error saving meeting record: {e}")
+        print(traceback.format_exc())
 
     return {
         "room_id": room_id,

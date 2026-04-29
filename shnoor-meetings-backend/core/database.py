@@ -190,6 +190,29 @@ def _ensure_tables():
                 created_at TIMESTAMPTZ DEFAULT {now_func}
             )
         """)
+        
+        # Participants Table (MISSING BEFORE)
+        cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS participants (
+                id {uuid_type} PRIMARY KEY,
+                meeting_id {uuid_type} REFERENCES meetings(id),
+                user_id {uuid_type} REFERENCES users(id),
+                role TEXT DEFAULT 'participant',
+                joined_at TIMESTAMPTZ DEFAULT {now_func},
+                left_at TIMESTAMPTZ
+            )
+        """)
+
+        # Meeting Chats Table (MISSING BEFORE)
+        cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS meeting_chats (
+                id {uuid_type} PRIMARY KEY,
+                meeting_id {uuid_type} REFERENCES meetings(id),
+                sender_id {uuid_type} REFERENCES users(id),
+                message TEXT NOT NULL,
+                sent_at TIMESTAMPTZ DEFAULT {now_func}
+            )
+        """)
 
         # Column patches
         if _db_type == "postgres":
@@ -212,7 +235,7 @@ def _ensure_tables():
 
         conn.commit()
     except Exception as e:
-        logger.error(f"Error ensuring tables exist: {e}")
+        logger.error(f"Error ensuring tables exist: {e}", exc_info=True)
         conn.rollback()
     finally:
         release_db_connection(conn)

@@ -16,6 +16,8 @@ class ConnectionManager:
         self.connection_users: Dict[str, Dict[WebSocket, dict]] = {}
         self.waiting_requests: Dict[str, Dict[str, dict]] = {}
         self.accepted_participants: Dict[str, set[str]] = {}
+        # Stores meeting metadata for meetings that haven't started yet or need to be tracked
+        self.registered_meetings: Dict[str, dict] = {}
 
     async def connect(self, websocket: WebSocket, room_id: str, client_id: str):
         await websocket.accept()
@@ -135,5 +137,27 @@ class ConnectionManager:
 
     def is_participant_accepted(self, room_id: str, client_id: str):
         return client_id in self.accepted_participants.get(room_id, set())
+
+    def register_meeting(self, room_id: str, **kwargs):
+        """
+        Registers a meeting with its metadata (host_id, host_email, etc.)
+        """
+        if room_id not in self.registered_meetings:
+            self.registered_meetings[room_id] = {}
+        
+        self.registered_meetings[room_id].update(kwargs)
+        logger.info(f"Meeting {room_id} registered with metadata: {kwargs}")
+
+    def get_registered_meeting(self, room_id: str):
+        """
+        Retrieves metadata for a registered meeting.
+        """
+        return self.registered_meetings.get(room_id)
+
+    def get_all_registered_meetings(self):
+        """
+        Returns all currently registered meetings.
+        """
+        return self.registered_meetings
 
 manager = ConnectionManager()

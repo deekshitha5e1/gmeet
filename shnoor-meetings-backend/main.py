@@ -45,11 +45,20 @@ app = FastAPI(
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    logger.error(f"Global exception caught: {exc}", exc_info=True)
+    return {
+        "status_code": 500,
+        "detail": "Internal Server Error. Check server logs for details.",
+        "message": str(exc)
+    }
 
 # Include routers
 app.include_router(meeting.router)
