@@ -18,7 +18,9 @@ const MeetingRoom = () => {
   const [isCaptionsOn, setIsCaptionsOn] = useState(false);
   const [captions, setCaptions] = useState('');
   const [isCopied, setIsCopied] = useState(false);
-  const meetingUrl = window.location.href;
+
+  // The shareable invite link always goes through the lobby so role detection works.
+  const meetingUrl = `${window.location.origin}/meeting/${roomId}`;
 
   // WebRTC Hook - Optimized Return
   const {
@@ -43,6 +45,23 @@ const MeetingRoom = () => {
     localClientId,
     getPeerConnection
   } = useWebRTC(roomId);
+
+  // ── Admission guard ──────────────────────────────────────────────────────────
+  // If someone navigates directly to /room/:id without going through the lobby
+  // (i.e. not admitted and not the host), send them back to the lobby.
+  useEffect(() => {
+    const admitted = sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true';
+    const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
+    const currentUser = getCurrentUser();
+    const myEmail = (currentUser?.email || '').trim().toLowerCase();
+    const myId = currentUser?.meetingUserId;
+    const iAmHost =
+      (myEmail && storedHostEmail && myEmail === storedHostEmail) ||
+      (myId && storedHostEmail === `id:${myId}`);
+    if (!admitted && !iAmHost) {
+      navigate(`/meeting/${roomId}`, { replace: true });
+    }
+  }, [roomId, navigate]);
 
   // Picture-in-Picture Hook
   const {
