@@ -72,6 +72,9 @@ export function useWebRTC(roomId, options = {}) {
     normalizedCurrentEmail &&
     storedHostEmail &&
     storedHostEmail === normalizedCurrentEmail
+  ) || Boolean(
+    storedHostEmail &&
+    storedHostEmail === `id:${getCurrentUser()?.meetingUserId}`
   );
 
   const computeIsHost = useCallback(() => (
@@ -391,18 +394,22 @@ export function useWebRTC(roomId, options = {}) {
 
       case 'join-request':
       case 'join_request':
+      case 'incoming-join-request':
         if (isHost.current) {
+          const requester = data.user || data;
+          const reqId = requester.id || peerId;
+
           setActiveJoinRequests((prev) => {
-            if (prev.find((request) => request.id === peerId)) {
+            if (prev.find((request) => request.id === reqId)) {
               return prev;
             }
 
             return [
               ...prev,
               {
-                id: peerId,
-                name: data.name || 'Participant',
-                picture: data.picture || null,
+                id: reqId,
+                name: requester.name || 'Participant',
+                picture: requester.picture || null,
               },
             ];
           });
@@ -492,19 +499,19 @@ export function useWebRTC(roomId, options = {}) {
 
       // --- Step 2: Always create the WebSocket regardless of media status ---
       try {
-        ws.current = new WebSocket(buildWebSocketUrl(`/ws/${roomId}/${clientId.current}`));
+        const role = isHost.current ? 'host' : 'participant';
+        const wsUrl = buildWebSocketUrl(`/ws/${roomId}/${role}?client_id=${clientId.current}`);
+        console.log(`[WebSocket] Connecting to: ${wsUrl}`);
+        ws.current = new WebSocket(wsUrl);
 
         ws.current.onopen = () => {
+          console.log(`[WebSocket] Connected: meetingId=${roomId}, role=${role}, clientId=${clientId.current}`);
           if (ws.current?.readyState !== WebSocket.OPEN) return;
 
           pendingMessagesRef.current.forEach((message) => {
             ws.current?.send(JSON.stringify(message));
           });
           pendingMessagesRef.current = [];
-
-          if (isHost.current) {
-            ws.current?.send(JSON.stringify({ type: 'host_join' }));
-          }
 
           if (autoJoin) {
             joinRoomCallbackRef.current?.();
@@ -513,6 +520,7 @@ export function useWebRTC(roomId, options = {}) {
 
         ws.current.onmessage = async (event) => {
           const message = JSON.parse(event.data);
+          console.log(`[WebSocket] Received message:`, message.type);
           await handleSignalingDataRef.current?.(message, stream || originalStream.current);
         };
       } catch (wsError) {
@@ -558,13 +566,17 @@ export function useWebRTC(roomId, options = {}) {
   const requestToJoin = useCallback((name = displayName.current) => {
     sessionStorage.setItem(`meeting_name_${roomId}`, name);
     displayName.current = name;
+    
+    // User requested structure:
+    // { "type": "join-request", "meetingId": "...", "user": { "name": "...", "email": "..." } }
     sendSignalingMessage({
-      type: 'ask_to_join',
-      user_id: clientId.current,
-      email: currentUser.current?.email || null,
-      name,
-      picture: currentUser.current?.picture || null,
-      requested_at: new Date().toISOString(),
+      type: 'join-request',
+      meetingId: roomId,
+      user: {
+        id: clientId.current,
+        name,
+        email: currentUser.current?.email || null
+      }
     });
   }, [roomId, sendSignalingMessage]);
 

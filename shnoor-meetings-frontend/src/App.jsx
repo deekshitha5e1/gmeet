@@ -37,11 +37,11 @@ function App() {
       <Routes>
         <Route path="/login" element={!user ? <LoginPage /> : <Navigate to="/" replace />} />
         <Route path="/" element={<ProtectedRoute><LandingPage /></ProtectedRoute>} />
-        <Route path="/meeting/:id" element={<ProtectedRoute><LobbyPage /></ProtectedRoute>} />
-        <Route path="/room/:id" element={<ProtectedRoute><MeetingRoom /></ProtectedRoute>} />
+        <Route path="/meeting/:id" element={<LobbyPage />} />
+        <Route path="/room/:id" element={<MeetingRoom />} />
         <Route path="/calendar" element={<ProtectedRoute><CalendarPage /></ProtectedRoute>} />
         <Route path="/calls" element={<ProtectedRoute><CallsPage /></ProtectedRoute>} />
-        <Route path="/left-meeting/:id" element={<ProtectedRoute><LeftMeetingPage /></ProtectedRoute>} />
+        <Route path="/left-meeting/:id" element={<LeftMeetingPage />} />
 
 
       </Routes>
