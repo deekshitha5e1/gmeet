@@ -5,6 +5,7 @@ import MeetingHeader from '../components/MeetingHeader';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWebRTC } from '../hooks/useWebRTC';
 import InviteModal from '../components/InviteModal';
+import ProfileAvatar from '../components/ProfileAvatar';
 import { getPreJoinMediaState, getPreferredMediaConstraints, savePreJoinMediaState } from '../utils/meetingUtils';
 import { getCurrentUser } from '../utils/currentUser';
 import { buildApiUrl } from '../utils/api';
