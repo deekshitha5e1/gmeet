@@ -211,6 +211,7 @@ export default function CalendarPage() {
     );
 
     writeStoredEvents(identityKey, nextLocalEvents);
+    window.dispatchEvent(new Event('storage'));
     setEvents(nextLocalEvents);
     setIsModalOpen(false);
 
@@ -224,6 +225,7 @@ export default function CalendarPage() {
           ev.id === payload.id ? { ...ev, id: serverId } : ev
         );
         writeStoredEvents(identityKey, corrected);
+        window.dispatchEvent(new Event('storage'));
       }
       await fetchEvents();
     } catch (err) {
@@ -241,6 +243,7 @@ export default function CalendarPage() {
     const nextLocalEvents = existingLocalEvents.filter((event) => event.id !== eventId);
 
     writeStoredEvents(identityKey, nextLocalEvents);
+    window.dispatchEvent(new Event('storage'));
     setEvents((prev) => prev.filter((event) => event.id !== eventId));
 
     try {
