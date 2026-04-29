@@ -72,6 +72,9 @@ export function useWebRTC(roomId, options = {}) {
     normalizedCurrentEmail &&
     storedHostEmail &&
     storedHostEmail === normalizedCurrentEmail
+  ) || Boolean(
+    storedHostEmail &&
+    storedHostEmail === `id:${getCurrentUser()?.meetingUserId}`
   );
 
   const computeIsHost = useCallback(() => (
