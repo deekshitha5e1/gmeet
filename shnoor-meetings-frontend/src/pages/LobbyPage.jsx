@@ -51,7 +51,9 @@ export default function LobbyPage() {
     activeJoinRequests, 
     admitParticipant, 
     denyParticipant,
-    requestToJoin 
+    requestToJoin,
+    sendSignalingMessage,
+    localClientId,
   } = useWebRTC(roomId, { acquireMedia: false, autoJoin: false, initialRole: resolvedRole });
 
   const toastTimeoutRef = useRef(null);
@@ -74,6 +76,15 @@ export default function LobbyPage() {
       setResolvedRole('participant');
     }
   }, [currentUser?.name, location.search, roomId, storedHostFlag, storedParticipantName, storedRole]);
+
+  // ── KEY FIX: Send host_join whenever role resolves to host ────────────────
+  // This fixes the race condition where the WS opens before the async API
+  // check completes and isHost.current is still false at onopen time.
+  useEffect(() => {
+    if (resolvedRole === 'host' && sendSignalingMessage) {
+      sendSignalingMessage({ type: 'host_join' });
+    }
+  }, [resolvedRole, sendSignalingMessage]);
 
   useEffect(() => {
     const checkHostDirectAdmin = async () => {
@@ -211,8 +222,21 @@ export default function LobbyPage() {
   const handleAskToJoin = () => {
     const trimmedName = participantName.trim() || currentUser?.name || 'Guest';
     setParticipantName(trimmedName);
+    sessionStorage.setItem(`meeting_name_${roomId}`, trimmedName);
     setIsWaiting(true);
-    requestToJoin(trimmedName);
+    // Use the hook's sendSignalingMessage so it goes over the existing WS
+    if (sendSignalingMessage) {
+      sendSignalingMessage({
+        type: 'ask_to_join',
+        user_id: localClientId,
+        name: trimmedName,
+        picture: currentUser?.picture || null,
+        requested_at: new Date().toISOString(),
+      });
+    } else {
+      // fallback to hook helper
+      requestToJoin(trimmedName);
+    }
     showToast("The host will let you in soon, please wait.");
   };
 

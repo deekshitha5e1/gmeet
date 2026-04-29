@@ -43,6 +43,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                 name = data.get("name") or ("Host" if requested_role == "host" else "Participant")
                 joined_at = data.get("joined_at")
                 email = data.get("email")
+                admitted = data.get("admitted", False)  # frontend passes this after host admits
                 user_id = get_or_create_user(
                     user_id=data.get("user_id") or client_id,
                     firebase_uid=data.get("firebase_uid"),
@@ -61,12 +62,22 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                 else:
                     role = "host" if is_meeting_host else "participant"
 
-                if role == "participant" and not manager.is_participant_accepted(room_id, client_id):
-                    await manager.send_to_websocket(websocket, {
-                        "type": "join-blocked",
-                        "reason": "not-admitted",
-                    })
-                    continue
+                logger.info(f"join-room: client={client_id} name={name} email={email} requested_role={requested_role} resolved_role={role} is_meeting_host={is_meeting_host}")
+
+                if role == "participant":
+                    # Auto-admit if:
+                    # 1. Already in the accepted set (admitted via lobby), OR
+                    # 2. Client passed admitted=true (already approved, page refresh etc.)
+                    if admitted:
+                        manager.add_accepted_participant(room_id, client_id)
+                    
+                    if not manager.is_participant_accepted(room_id, client_id):
+                        logger.info(f"join-room BLOCKED: participant {client_id} not admitted yet")
+                        await manager.send_to_websocket(websocket, {
+                            "type": "join-blocked",
+                            "reason": "not-admitted",
+                        })
+                        continue
 
                 meeting_id = ensure_meeting_record(
                     room_id,

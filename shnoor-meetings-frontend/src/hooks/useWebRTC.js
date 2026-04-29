@@ -191,6 +191,8 @@ export function useWebRTC(roomId, options = {}) {
       name: displayName.current,
       picture: currentUser.current?.picture || null,
       role: isHost.current ? 'host' : 'participant',
+      // Pass admitted flag so backend trusts already-approved participants
+      admitted: !isHost.current && sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true',
       joined_at: new Date().toISOString(),
     });
   }, [autoJoin, roomId, sendSignalingMessage, startSessionTracking]);
@@ -732,5 +734,6 @@ export function useWebRTC(roomId, options = {}) {
     isVideoEnabled,
     localClientId: clientId.current,
     getPeerConnection,
+    sendSignalingMessage,
   };
 }
