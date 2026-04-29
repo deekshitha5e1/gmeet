@@ -153,6 +153,7 @@ export function useWebRTC(roomId, options = {}) {
     sendSignalingMessage({
       type: 'participant-update',
       name: displayName.current,
+      picture: currentUser.current?.picture || null,
       role: isHost.current ? 'host' : 'participant',
       isHandRaised,
       isSharingScreen,
@@ -173,6 +174,7 @@ export function useWebRTC(roomId, options = {}) {
       [clientId.current]: {
         ...prev[clientId.current],
         name: displayName.current,
+        picture: currentUser.current?.picture || null,
         role: isHost.current ? 'host' : 'participant',
         isHandRaised: false,
         isSharingScreen: false,
@@ -187,6 +189,7 @@ export function useWebRTC(roomId, options = {}) {
       firebase_uid: currentUser.current?.firebaseUid || null,
       email: currentUser.current?.email || null,
       name: displayName.current,
+      picture: currentUser.current?.picture || null,
       role: isHost.current ? 'host' : 'participant',
       joined_at: new Date().toISOString(),
     });
@@ -258,6 +261,7 @@ export function useWebRTC(roomId, options = {}) {
           [peerId]: {
             ...prev[peerId],
             name: data.name || prev[peerId]?.name || 'Participant',
+            picture: data.picture || prev[peerId]?.picture || null,
             role: data.role || prev[peerId]?.role || 'participant',
             isHandRaised: prev[peerId]?.isHandRaised || false,
             isSharingScreen: prev[peerId]?.isSharingScreen || false,
@@ -353,6 +357,7 @@ export function useWebRTC(roomId, options = {}) {
           [peerId]: {
             ...prev[peerId],
             name: data.name || prev[peerId]?.name || 'Participant',
+            picture: data.picture || prev[peerId]?.picture || null,
             role: data.role || prev[peerId]?.role || 'participant',
             isHandRaised: typeof data.isHandRaised === 'boolean' ? data.isHandRaised : prev[peerId]?.isHandRaised,
             isSharingScreen: typeof data.isSharingScreen === 'boolean' ? data.isSharingScreen : prev[peerId]?.isSharingScreen,
@@ -373,6 +378,7 @@ export function useWebRTC(roomId, options = {}) {
               {
                 id: peerId,
                 name: data.name || 'Participant',
+                picture: data.picture || null,
               },
             ];
           });
@@ -387,6 +393,7 @@ export function useWebRTC(roomId, options = {}) {
 
       case 'admit':
       case 'accepted':
+      case 'accept_user':
         sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
         window.dispatchEvent(new CustomEvent('meeting-admitted', { detail: { roomId } }));
         break;
@@ -547,6 +554,7 @@ export function useWebRTC(roomId, options = {}) {
       user_id: clientId.current,
       email: currentUser.current?.email || null,
       name,
+      picture: currentUser.current?.picture || null,
       requested_at: new Date().toISOString(),
     });
   }, [roomId, sendSignalingMessage]);

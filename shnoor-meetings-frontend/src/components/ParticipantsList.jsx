@@ -26,7 +26,10 @@ const ParticipantsList = React.memo(({
             <div className="space-y-2">
               {joinRequests.map((req) => (
                 <div key={req.id} className="flex items-center justify-between p-2 bg-gray-700/50 rounded-lg">
-                  <span className="text-sm font-medium truncate max-w-[120px]">{req.name}</span>
+                  <div className="flex items-center gap-2">
+                    <ProfileAvatar name={req.name} picture={req.picture} className="w-8 h-8" textClass="text-[10px]" />
+                    <span className="text-sm font-medium truncate max-w-[100px]">{req.name}</span>
+                  </div>
                   <div className="flex gap-1">
                     <button onClick={() => onAdmit(req.id)} className="p-1.5 bg-blue-600 rounded-md"><Check size={14} /></button>
                     <button onClick={() => onDeny(req.id)} className="p-1.5 bg-gray-600 rounded-md"><X size={14} /></button>

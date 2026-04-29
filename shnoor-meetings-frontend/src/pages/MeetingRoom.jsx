@@ -8,7 +8,7 @@ import ChatPanel from '../components/ChatPanel';
 import ParticipantsList from '../components/ParticipantsList';
 import PipPopup from '../components/PipPopup';
 import InPagePip from '../components/InPagePip';
-import { Info, Video, Maximize2, Copy } from 'lucide-react';
+import { Info, Video, Maximize2, Copy, Check } from 'lucide-react';
 import { getCurrentUser } from '../utils/currentUser';
 
 const MeetingRoom = () => {
@@ -17,6 +17,8 @@ const MeetingRoom = () => {
   const [activePanel, setActivePanel] = useState(null); // 'chat' | 'people' | null
   const [isCaptionsOn, setIsCaptionsOn] = useState(false);
   const [captions, setCaptions] = useState('');
+  const [isCopied, setIsCopied] = useState(false);
+  const meetingUrl = window.location.href;
 
   // WebRTC Hook - Optimized Return
   const {
@@ -67,6 +69,12 @@ const MeetingRoom = () => {
   const handleAdmit = useCallback((id) => admitParticipant(id), [admitParticipant]);
   const handleDeny = useCallback((id) => denyParticipant(id), [denyParticipant]);
 
+  const handleCopyLink = useCallback(() => {
+    navigator.clipboard.writeText(meetingUrl);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  }, [meetingUrl]);
+
   // Captions Logic - Optimized to avoid render blocking
   useEffect(() => {
     if (!isCaptionsOn) return;
@@ -92,24 +100,25 @@ const MeetingRoom = () => {
       <header className={`p-4 flex items-center justify-between border-b border-gray-800/50 bg-gray-900/50 backdrop-blur-xl z-20 transition-all duration-500 ${pipMode === PIP_MODES.MINIMIZED ? 'opacity-0 -translate-y-full' : ''}`}>
         <div className="flex items-center gap-3">
           <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse" />
-          <span className="font-bold tracking-tight">Shnoor Meetings</span>
-          <div className="h-4 w-[1px] bg-gray-800 mx-2" />
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 font-mono select-all hover:text-gray-300">ID: {roomId}</span>
-            {isHost && (
-              <button 
-                onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}/meeting/${roomId}`);
-                  alert('Meeting link copied to clipboard!');
-                }}
-                className="ml-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg flex items-center gap-1.5 text-xs font-semibold transition-colors"
-                title="Copy Meeting Link"
-              >
-                <Copy size={14} />
-                Copy Link
-              </button>
-            )}
+          <span className="font-bold tracking-tight text-white/90">Shnoor Meetings</span>
+          <div className="h-4 w-[1px] bg-white/10 mx-1" />
+          
+          <div className="hidden md:flex items-center gap-2 bg-white/5 hover:bg-white/10 transition-colors rounded-full pl-3 pr-1 py-1 border border-white/10 group">
+             <span className="text-[11px] text-gray-400 font-medium tracking-wide truncate max-w-[150px] lg:max-w-xs">
+               {meetingUrl.replace(/^https?:\/\//, '')}
+             </span>
+             <button 
+               onClick={handleCopyLink}
+               className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold transition-all transform active:scale-95 ${isCopied ? 'bg-green-500 text-white' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/20'}`}
+               title="Copy meeting link"
+             >
+               {isCopied ? <Check size={12} /> : <Copy size={12} />}
+               {isCopied ? 'COPIED' : 'COPY LINK'}
+             </button>
           </div>
+
+          <div className="md:hidden h-4 w-[1px] bg-gray-800 mx-2" />
+          <span className="md:hidden text-xs text-gray-500 font-mono select-all cursor-pointer hover:text-gray-300">ID: {roomId}</span>
         </div>
       </header>
 

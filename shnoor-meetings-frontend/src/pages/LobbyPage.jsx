@@ -363,9 +363,12 @@ export default function LobbyPage() {
                       {activeJoinRequests.map(req => (
                         <div key={req.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
                           <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs">
-                              {req.name.charAt(0)}
-                            </div>
+                            <ProfileAvatar 
+                              name={req.name} 
+                              picture={req.picture} 
+                              className="w-10 h-10" 
+                              textClass="text-xs" 
+                            />
                             <div className="min-w-0">
                               <div className="text-sm font-medium text-gray-700">{req.name}</div>
                               <div className="text-xs text-gray-500">Waiting in lobby</div>

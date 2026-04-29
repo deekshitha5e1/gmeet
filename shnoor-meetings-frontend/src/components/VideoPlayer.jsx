@@ -10,9 +10,9 @@ const VideoPlayer = React.memo(({
   isLocal = false,
   isHandRaised = false,
   isSpeaking = false,
-  audioLevel = 0,
   isVideoEnabled = true,
   isAudioEnabled = true,
+  audioLevel = 0,
   featured = false,
   compact = false,
 }) => {
@@ -47,9 +47,9 @@ const VideoPlayer = React.memo(({
   }, [stream, isVideoEnabled]);
 
   return (
-    <div className={`relative overflow-hidden border group flex items-center justify-center transition-all duration-300 ${
-      featured ? 'w-full h-full rounded-3xl bg-black' : 'w-full aspect-video rounded-2xl bg-gray-800'
-    } ${isSpeaking ? 'border-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.3)]' : 'border-gray-700/50'}`}>
+    <div className={`relative overflow-hidden border group flex items-center justify-center transition-all duration-300 w-full aspect-video rounded-2xl bg-gray-800 ${
+      isSpeaking ? 'border-white shadow-[0_0_20px_rgba(255,255,255,0.2)]' : 'border-gray-700/50'
+    }`}>
       
       {isVideoEnabled && stream ? (
         <video
@@ -61,18 +61,24 @@ const VideoPlayer = React.memo(({
         />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
-          <div 
-             className="rounded-full transition-all duration-75 ease-out"
-             style={{ 
-               transform: `scale(${1 + Math.min(audioLevel * 1.5, 0.3)})`,
-               boxShadow: audioLevel > 0.03 ? `0 0 0 ${Math.min(audioLevel * 20, 12)}px rgba(255, 255, 255, 0.6)` : 'none'
-             }}
-           >
-             <ProfileAvatar
-               name={label}
-               picture={picture}
-               className={featured ? 'h-32 w-32' : 'h-16 w-16'}
-             />
+          <div className="relative flex items-center justify-center">
+            {/* Pulsing Voice Circle */}
+            {isSpeaking && isAudioEnabled && (
+              <div 
+                className="absolute rounded-full border-2 border-white/60 bg-white/5 transition-transform duration-75 ease-out"
+                style={{ 
+                  width: '130%', 
+                  height: '130%', 
+                  transform: `scale(${1 + (audioLevel * 1.8)})`,
+                  opacity: 0.3 + (audioLevel * 0.7)
+                }}
+              />
+            )}
+            <ProfileAvatar
+              name={label}
+              picture={picture}
+              className="h-20 w-20 md:h-24 md:w-24"
+            />
           </div>
         </div>
       )}

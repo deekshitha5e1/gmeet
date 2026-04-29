@@ -33,6 +33,7 @@ const VideoGrid = React.memo(({
       id: localClientId,
       stream: localStream,
       label: displayName + ' (You)',
+      picture: participantsMetadata[localClientId]?.picture,
       isHost: participantsMetadata[localClientId]?.role === 'host',
       isLocal: true,
       isHandRaised,

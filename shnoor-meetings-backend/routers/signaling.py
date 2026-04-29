@@ -133,10 +133,13 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                 if msg_type in {"admit", "accept_user"}:
                     manager.add_accepted_participant(room_id, target_id)
                 await sync_waiting_room(room_id)
+                
+                # Ensure the final type is correct and not overwritten by **data
+                response_type = "accepted" if msg_type in {"admit", "accept_user"} else "deny"
                 await manager.send_to_client(room_id, target_id, {
-                    "type": "accepted" if msg_type in {"admit", "accept_user"} else "deny",
-                    "sender": client_id,
                     **data,
+                    "type": response_type,
+                    "sender": client_id,
                 })
                 continue
 
