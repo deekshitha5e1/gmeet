@@ -17,7 +17,20 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 
+# Always-allowed origins (hardcoded safety net)
+_ALWAYS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://gmeet-wt19.vercel.app",   # production Vercel deployment
+]
+
+
 def get_allowed_origins():
+    """Return the full list of CORS-allowed origins.
+
+    Merges hardcoded origins with whatever is set in FRONTEND_ORIGINS so that
+    the Vercel frontend always works even if the Render env-var is missing.
+    """
     configured_origins = os.getenv("FRONTEND_ORIGINS", "")
     parsed_origins = [
         origin.strip()
@@ -25,13 +38,9 @@ def get_allowed_origins():
         if origin.strip()
     ]
 
-    if parsed_origins:
-        return parsed_origins
-
-    return [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ]
+    # Union of configured + always-allowed (preserve order, deduplicate)
+    merged = list(dict.fromkeys(_ALWAYS_ALLOWED_ORIGINS + parsed_origins))
+    return merged
 
 # Initialize Database
 init_db()
