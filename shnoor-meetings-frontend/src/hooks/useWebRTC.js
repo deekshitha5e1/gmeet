@@ -191,10 +191,15 @@ export function useWebRTC(roomId, options = {}) {
       name: displayName.current,
       picture: currentUser.current?.picture || null,
       role: isHost.current ? 'host' : 'participant',
-      // Pass admitted flag so backend trusts already-approved participants
       admitted: !isHost.current && sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true',
       joined_at: new Date().toISOString(),
     });
+
+    // If host: also send host_join so backend marks this in-meeting WS as role=host.
+    // This ensures ask_to_join messages from participants are routed here correctly.
+    if (isHost.current) {
+      sendSignalingMessage({ type: 'host_join' });
+    }
   }, [autoJoin, roomId, sendSignalingMessage, startSessionTracking]);
 
   const createPeerConnection = useCallback((peerId, stream) => {
