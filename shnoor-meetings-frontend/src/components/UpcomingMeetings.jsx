@@ -15,7 +15,11 @@ function computeCountdown(startTime) {
   const diffMs = start - now;
 
   if (diffMs <= 0) {
-    return { label: 'Starting now', urgent: true, started: true };
+    // Over 1.5 hours past start
+    if (diffMs < -5400000) {
+      return { label: 'Ended', urgent: false, started: false };
+    }
+    return { label: 'Started', urgent: true, started: true };
   }
 
   const totalSecs = Math.floor(diffMs / 1000);
@@ -218,6 +222,17 @@ export default function UpcomingMeetings() {
       setError(null);
 
       try {
+        // First retrieve any local events to guarantee immediate consistency
+        const identityKey = userEmail || userId || 'guest';
+        let localEvents = [];
+        try {
+          const stored = localStorage.getItem(`shnoor_calendar_events_${identityKey}`);
+          if (stored) localEvents = JSON.parse(stored);
+        } catch (e) {
+          console.error("Failed parsing localStorage events in UpcomingMeetings", e);
+        }
+        if (!Array.isArray(localEvents)) localEvents = [];
+
         const params = new URLSearchParams();
         if (userEmail)   params.set('user_email', userEmail);
         else if (userId) params.set('user_id', userId);
@@ -230,33 +245,39 @@ export default function UpcomingMeetings() {
         });
         clearTimeout(timeoutId);
 
+        let data = [];
         if (res.ok) {
-          const data = await res.json();
-          const now  = new Date();
-          const upcoming = (Array.isArray(data) ? data : [])
-            .filter(e => {
-              // Only show scheduled meetings, not personal events or reminders
-              const cat = (e.category || '').trim().toLowerCase();
-              if (cat !== 'meetings' && cat !== 'meeting') return false;
-
-              const start = new Date(e.start_time);
-              const end   = e.end_time ? new Date(e.end_time) : null;
-
-              // Show if: the meeting hasn't ended yet
-              // (if no end_time, show if start is today or future)
-              if (end) return end > now;
-              return isAfter(start, now) || isSameDay(start, now);
-            })
-            .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
-            .slice(0, 5);           // show up to 5 upcoming meetings
-          setEvents(upcoming);
+          data = await res.json();
         } else {
-          const txt = await res.text();
-          setError(`Failed to load meetings (${res.status}): ${txt}`);
+          console.warn("Failed API fetch, falling back to local events.");
         }
+        
+        // Merge API data with local data just like CalendarPage does
+        const eventMap = new Map();
+        [...localEvents, ...(Array.isArray(data) ? data : [])].forEach(ev => {
+          if (ev && ev.id) eventMap.set(ev.id, ev);
+        });
+        const mergedData = Array.from(eventMap.values());
+
+        const now  = new Date();
+        const upcoming = mergedData
+          .filter(e => {
+            const cat = (e.category || '').trim().toLowerCase();
+            if (cat !== 'meetings' && cat !== 'meeting') return false;
+
+            const start = new Date(e.start_time);
+            
+            // Show if it is today or in the future! 
+            // This prevents "No upcoming meetings" if they scheduled one earlier today.
+            return isAfter(start, now) || isSameDay(start, now);
+          })
+          .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+          .slice(0, 5);
+          
+        setEvents(upcoming);
       } catch (err) {
         console.error('UpcomingMeetings fetch error:', err);
-        setError('Network error – could not reach the server');
+        // Do not block UI with hard error, fallback to any local data loaded
       } finally {
         setLoading(false);
       }
