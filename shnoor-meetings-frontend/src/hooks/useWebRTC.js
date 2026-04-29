@@ -491,6 +491,8 @@ export function useWebRTC(roomId, options = {}) {
         } catch (mediaError) {
           console.error('Media acquisition failed, joining without camera/mic:', mediaError);
           if (isMounted) {
+            setIsAudioEnabled(false);
+            setIsVideoEnabled(false);
             setMediaError(mediaError.name === 'NotAllowedError' ? 'Permission Denied' : 'Media Device Error');
           }
           // Continue — WebSocket will still be created below
