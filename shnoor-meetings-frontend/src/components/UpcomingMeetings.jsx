@@ -266,13 +266,18 @@ export default function UpcomingMeetings() {
         const upcoming = mergedData
           .filter(e => {
             const cat = (e.category || '').trim().toLowerCase();
-            // Show all meeting-like categories
-            if (!cat.includes('meeting')) return false;
+            // Show any meeting or personal events that are recent or future
+            if (cat === 'reminders' || cat === 'reminder') return false;
 
             const start = new Date(e.start_time);
+            const end = e.end_time ? new Date(e.end_time) : null;
             
-            // Show if it is today or in the future
-            return isAfter(start, now) || isSameDay(start, now);
+            // Show if it is today, OR in the future, OR is currently happening
+            const isToday = isSameDay(start, now);
+            const isFuture = isAfter(start, now);
+            const isCurrentlyHappening = end ? (start <= now && end >= now) : false;
+
+            return isToday || isFuture || isCurrentlyHappening;
           })
           .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
           .slice(0, 10);

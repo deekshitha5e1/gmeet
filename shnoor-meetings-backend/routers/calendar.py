@@ -241,22 +241,37 @@ async def create_event(event: CalendarEventCreate):
 
     trigger_calendar_reminder_check()
 
-    if recipient_emails_str and category in ["meetings", "meeting"]:
-        event_dict = {
-            "title": event.title,
-            "description": event.description,
-            "category": category,
-            "start_time": event.start_time,
-            "end_time": event.end_time,
-            "room_id": room_id,
-            "user_name": event.user_name or "Calendar User",
-            "user_email": recipient_emails_str,
-            "reminder_offset_minutes": event.reminder_offset_minutes
-        }
-        try:
-            send_meeting_scheduled_email(event_dict)
-        except Exception as e:
-            print(f"Failed to send scheduled meeting email: {e}")
+    if category in ["meetings", "meeting"]:
+        # Ensure we have the latest host email even if it wasn't in the request
+        db_user = get_or_create_user(user_id=user_id)
+        final_host_email = (db_user or {}).get("email") or host_email
+        
+        # Build the full list for the notification
+        notif_emails = []
+        if final_host_email:
+            notif_emails.append(final_host_email)
+        if event.guest_emails:
+            for em in event.guest_emails:
+                normalized_em = (em or "").strip().lower()
+                if normalized_em and normalized_em not in notif_emails:
+                    notif_emails.append(normalized_em)
+        
+        if notif_emails:
+            event_dict = {
+                "title": event.title,
+                "description": event.description,
+                "category": category,
+                "start_time": event.start_time,
+                "end_time": event.end_time,
+                "room_id": room_id,
+                "user_name": event.user_name or (db_user or {}).get("name") or "Calendar User",
+                "user_email": ",".join(notif_emails),
+                "reminder_offset_minutes": event.reminder_offset_minutes
+            }
+            try:
+                send_meeting_scheduled_email(event_dict)
+            except Exception as e:
+                print(f"Failed to send scheduled meeting email: {e}")
 
     return {"id": event_id, "message": "Event created successfully"}
 
