@@ -195,6 +195,8 @@ export function useWebRTC(roomId, options = {}) {
       picture: currentUser.current?.picture || null,
       role: isHost.current ? 'host' : 'participant',
       admitted: !isHost.current && sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true',
+      isAudioEnabled,
+      isVideoEnabled,
       joined_at: new Date().toISOString(),
     });
 

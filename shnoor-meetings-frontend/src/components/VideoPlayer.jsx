@@ -51,7 +51,7 @@ const VideoPlayer = React.memo(({
       isSpeaking ? 'border-white shadow-[0_0_20px_rgba(255,255,255,0.2)]' : 'border-gray-700/50'
     }`}>
       
-      {isVideoEnabled && stream ? (
+      {isVideoEnabled && stream && stream.getVideoTracks().some(t => t.readyState === 'live') ? (
         <video
           ref={videoRef}
           autoPlay
