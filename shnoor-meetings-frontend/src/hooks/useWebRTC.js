@@ -35,7 +35,6 @@ function getStableClientId(roomId) {
 }
 
 function getDisplayName(roomId, isHost) {
-  const currentUser = getCurrentUser();
   const storageKey = `meeting_name_${roomId}`;
   const existingName = sessionStorage.getItem(storageKey);
 
@@ -43,6 +42,7 @@ function getDisplayName(roomId, isHost) {
     return existingName;
   }
 
+  const currentUser = getCurrentUser();
   const generatedName = currentUser?.name || (isHost ? 'Host' : `Participant ${getStableClientId(roomId).slice(-4).toUpperCase()}`);
   sessionStorage.setItem(storageKey, generatedName);
   return generatedName;
@@ -448,8 +448,22 @@ export function useWebRTC(roomId, options = {}) {
 
     if (!wasHost && nextIsHost && ws.current?.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify({ type: 'host_join' }));
+      syncParticipantState();
     }
-  }, [computeIsHost]);
+
+    // Sync local metadata for local tile display
+    setParticipantsMetadata(prev => ({
+      ...prev,
+      [clientId.current]: {
+        name: displayName.current,
+        role: nextIsHost ? 'host' : 'participant',
+        isAudioEnabled,
+        isVideoEnabled,
+        isHandRaised,
+        isSharingScreen
+      }
+    }));
+  }, [computeIsHost, isAudioEnabled, isVideoEnabled, isHandRaised, isSharingScreen, syncParticipantState]);
 
   useEffect(() => {
     handleSignalingDataRef.current = handleSignalingData;
