@@ -7,170 +7,139 @@ logger = logging.getLogger(__name__)
 
 class ConnectionManager:
     def __init__(self):
-        # Maps a room_id to a list of active websocket connections
-        # Example: {"room1": [client1, client2], ...}
-        self.active_connections: Dict[str, List[WebSocket]] = {}
-        # Keeps track of the user/client id associated with a websocket for a room
-        # Example: {"room1": {websocket: "user_1"}}
+        # Maps a meeting_id to its connections
+        # rooms = {
+        #   meetingId: {
+        #     "host": WebSocket, (or list if multiple connections)
+        #     "participants": [WebSocket, ...]
+        #   }
+        # }
+        self.rooms: Dict[str, Dict[str, Any]] = {}
+        
+        # Additional metadata for legacy compatibility if needed
         self.user_records: Dict[str, Dict[WebSocket, str]] = {}
-        self.connection_users: Dict[str, Dict[WebSocket, dict]] = {}
         self.waiting_requests: Dict[str, Dict[str, dict]] = {}
         self.accepted_participants: Dict[str, set[str]] = {}
-        # Stores meeting metadata for meetings that haven't started yet or need to be tracked
-        self.registered_meetings: Dict[str, dict] = {}
 
-    async def connect(self, websocket: WebSocket, room_id: str, client_id: str):
+    async def connect(self, websocket: WebSocket, meeting_id: str, role: str, client_id: str):
         await websocket.accept()
-        if room_id not in self.active_connections:
-            self.active_connections[room_id] = []
-        if room_id not in self.user_records:
-            self.user_records[room_id] = {}
-        if room_id not in self.connection_users:
-            self.connection_users[room_id] = {}
-        # NOTE: Do NOT reset waiting_requests or accepted_participants here.
-        # They must survive across reconnections (host lobby WS → host room WS).
-        if room_id not in self.waiting_requests:
-            self.waiting_requests[room_id] = {}
-        if room_id not in self.accepted_participants:
-            self.accepted_participants[room_id] = set()
-
-        self.active_connections[room_id].append(websocket)
-        self.user_records[room_id][websocket] = client_id
-
-        logger.info(f"Client {client_id} joined room {room_id}")
-
-    def disconnect(self, websocket: WebSocket, room_id: str):
-        metadata = self.connection_users.get(room_id, {}).get(websocket)
-
-        if room_id in self.active_connections:
-            if websocket in self.active_connections[room_id]:
-                self.active_connections[room_id].remove(websocket)
+        
+        if meeting_id not in self.rooms:
+            self.rooms[meeting_id] = {
+                "host": None,
+                "participants": []
+            }
             
-            if websocket in self.user_records.get(room_id, {}):
-                del self.user_records[room_id][websocket]
+        if meeting_id not in self.user_records:
+            self.user_records[meeting_id] = {}
+        if meeting_id not in self.waiting_requests:
+            self.waiting_requests[meeting_id] = {}
+        if meeting_id not in self.accepted_participants:
+            self.accepted_participants[meeting_id] = set()
 
-            if websocket in self.connection_users.get(room_id, {}):
-                del self.connection_users[room_id][websocket]
-                
+        if role == "host":
+            # If there was an old host connection, we might keep it or replace it.
+            # Usually, one host per meeting, but let's be flexible.
+            self.rooms[meeting_id]["host"] = websocket
+            self.accepted_participants[meeting_id].add(client_id)
+            logger.info(f"Host {client_id} connected to meeting {meeting_id}")
+        else:
+            self.rooms[meeting_id]["participants"].append(websocket)
+            logger.info(f"Participant {client_id} connected to meeting {meeting_id}")
+
+        self.user_records[meeting_id][websocket] = client_id
+        logger.info(f"WebSocket connected: meetingId={meeting_id}, role={role}, clientId={client_id}")
+
+    def disconnect(self, websocket: WebSocket, meeting_id: str):
+        if meeting_id in self.rooms:
+            room = self.rooms[meeting_id]
+            if room["host"] == websocket:
+                room["host"] = None
+                logger.info(f"Host disconnected from meeting {meeting_id}")
+            elif websocket in room["participants"]:
+                room["participants"].remove(websocket)
+                logger.info(f"Participant disconnected from meeting {meeting_id}")
+
+            if websocket in self.user_records.get(meeting_id, {}):
+                del self.user_records[meeting_id][websocket]
+
             # Clean up empty rooms
-            if not self.active_connections[room_id]:
-                del self.active_connections[room_id]
-                del self.user_records[room_id]
-                self.connection_users.pop(room_id, None)
-                self.waiting_requests.pop(room_id, None)
-                self.accepted_participants.pop(room_id, None)
+            if not room["host"] and not room["participants"]:
+                del self.rooms[meeting_id]
+                self.user_records.pop(meeting_id, None)
+                self.waiting_requests.pop(meeting_id, None)
+                self.accepted_participants.pop(meeting_id, None)
+                logger.info(f"Meeting {meeting_id} cleared from memory")
 
-        return metadata
-
-    async def broadcast_to_room(self, room_id: str, message: dict, sender: WebSocket = None):
-        """
-        Broadcasts a message to all users in the room, optionally excluding the sender.
-        """
-        if room_id in self.active_connections:
-            for connection in self.active_connections[room_id]:
-                if connection != sender:
-                    try:
-                        await connection.send_json(message)
-                    except Exception as e:
-                        logger.error(f"Error sending message to client: {e}")
-
-    async def send_to_client(self, room_id: str, client_id: str, message: dict):
-        if room_id not in self.user_records:
-            return
-
-        for connection, stored_client_id in self.user_records[room_id].items():
-            if stored_client_id == client_id:
+    async def send_to_host(self, meeting_id: str, message: dict):
+        if meeting_id in self.rooms:
+            host_ws = self.rooms[meeting_id].get("host")
+            if host_ws:
                 try:
-                    await connection.send_json(message)
+                    await host_ws.send_json(message)
+                    logger.info(f"Message sent to host in {meeting_id}: {message.get('type')}")
+                    return True
                 except Exception as e:
-                    logger.error(f"Error sending targeted message to client {client_id}: {e}")
-                return
+                    logger.error(f"Error sending message to host: {e}")
+        logger.warning(f"No active host connection found for meeting {meeting_id}")
+        return False
 
-    async def send_to_websocket(self, websocket: WebSocket, message: dict):
-        try:
-            await websocket.send_json(message)
-        except Exception as e:
-            logger.error(f"Error sending websocket message: {e}")
+    async def broadcast_to_participants(self, meeting_id: str, message: dict):
+        if meeting_id in self.rooms:
+            for ws in self.rooms[meeting_id]["participants"]:
+                try:
+                    await ws.send_json(message)
+                except Exception:
+                    pass
 
-    async def send_to_role(self, room_id: str, role: str, message: dict):
-        if room_id not in self.connection_users:
-            logger.warning(f"send_to_role({role}): room {room_id} not in connection_users")
-            return
+    async def broadcast_to_all(self, meeting_id: str, message: dict):
+        if meeting_id in self.rooms:
+            room = self.rooms[meeting_id]
+            all_ws = []
+            if room["host"]:
+                all_ws.append(room["host"])
+            all_ws.extend(room["participants"])
+            
+            for ws in all_ws:
+                try:
+                    await ws.send_json(message)
+                except Exception:
+                    pass
 
-        sent = False
-        for connection, metadata in list(self.connection_users[room_id].items()):
-            if (metadata or {}).get("role") != role:
-                continue
-            try:
-                await connection.send_json(message)
-                sent = True
-            except Exception as e:
-                logger.error(f"Error sending message to {role} connection: {e}")
+    async def send_to_client(self, meeting_id: str, client_id: str, message: dict):
+        if meeting_id in self.user_records:
+            for ws, stored_id in self.user_records[meeting_id].items():
+                if stored_id == client_id:
+                    try:
+                        await ws.send_json(message)
+                        return True
+                    except Exception:
+                        pass
+        return False
 
-        if not sent:
-            logger.warning(f"send_to_role({role}): no {role} connections found in room {room_id}. "
-                           f"Connections: {[m for m in self.connection_users.get(room_id, {}).values()]}")
-
-    def set_connection_user(self, room_id: str, websocket: WebSocket, metadata: dict):
-        if room_id not in self.connection_users:
-            self.connection_users[room_id] = {}
-
-        current = self.connection_users[room_id].get(websocket, {})
-        self.connection_users[room_id][websocket] = {
-            **current,
-            **metadata,
-        }
-
-    def get_connection_user(self, room_id: str, websocket: WebSocket):
-        return self.connection_users.get(room_id, {}).get(websocket)
-
-    def add_waiting_request(self, room_id: str, client_id: str, name: str, picture: str = None):
-        if room_id not in self.waiting_requests:
-            self.waiting_requests[room_id] = {}
-
-        self.waiting_requests[room_id][client_id] = {
+    def add_waiting_request(self, meeting_id: str, client_id: str, name: str, email: str = None):
+        if meeting_id not in self.waiting_requests:
+            self.waiting_requests[meeting_id] = {}
+        self.waiting_requests[meeting_id][client_id] = {
             "id": client_id,
             "name": name,
-            "picture": picture,
+            "email": email
         }
 
-    def remove_waiting_request(self, room_id: str, client_id: str):
-        if room_id in self.waiting_requests:
-            return self.waiting_requests[room_id].pop(client_id, None)
+    def remove_waiting_request(self, meeting_id: str, client_id: str):
+        if meeting_id in self.waiting_requests:
+            return self.waiting_requests[meeting_id].pop(client_id, None)
         return None
 
-    def get_waiting_requests(self, room_id: str):
-        return list(self.waiting_requests.get(room_id, {}).values())
+    def get_waiting_requests(self, meeting_id: str):
+        return list(self.waiting_requests.get(meeting_id, {}).values())
 
-    def add_accepted_participant(self, room_id: str, client_id: str):
-        if room_id not in self.accepted_participants:
-            self.accepted_participants[room_id] = set()
+    def add_accepted_participant(self, meeting_id: str, client_id: str):
+        if meeting_id not in self.accepted_participants:
+            self.accepted_participants[meeting_id] = set()
+        self.accepted_participants[meeting_id].add(client_id)
 
-        self.accepted_participants[room_id].add(client_id)
-
-    def is_participant_accepted(self, room_id: str, client_id: str):
-        return client_id in self.accepted_participants.get(room_id, set())
-
-    def register_meeting(self, room_id: str, **kwargs):
-        """
-        Registers a meeting with its metadata (host_id, host_email, etc.)
-        """
-        if room_id not in self.registered_meetings:
-            self.registered_meetings[room_id] = {}
-        
-        self.registered_meetings[room_id].update(kwargs)
-        logger.info(f"Meeting {room_id} registered with metadata: {kwargs}")
-
-    def get_registered_meeting(self, room_id: str):
-        """
-        Retrieves metadata for a registered meeting.
-        """
-        return self.registered_meetings.get(room_id)
-
-    def get_all_registered_meetings(self):
-        """
-        Returns all currently registered meetings.
-        """
-        return self.registered_meetings
+    def is_participant_accepted(self, meeting_id: str, client_id: str):
+        return client_id in self.accepted_participants.get(meeting_id, set())
 
 manager = ConnectionManager()
