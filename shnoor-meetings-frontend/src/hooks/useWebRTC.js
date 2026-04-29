@@ -242,6 +242,23 @@ export function useWebRTC(roomId, options = {}) {
     const { type, sender, target } = data;
     const peerId = sender || data.client_id;
 
+    // ── Admission control messages: handle BEFORE any early-return guards ──────
+    // These are directed at this specific client and must never be filtered out.
+    if (type === 'accepted' || type === 'admit' || type === 'accept_user') {
+      sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
+      window.dispatchEvent(new CustomEvent('meeting-admitted', { detail: { roomId } }));
+      return;
+    }
+    if (type === 'deny') {
+      window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
+      return;
+    }
+    if (type === 'join-blocked') {
+      sessionStorage.removeItem(`meeting_admitted_${roomId}`);
+      window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
+      return;
+    }
+
     if (peerId === clientId.current) {
       return;
     }
@@ -393,22 +410,7 @@ export function useWebRTC(roomId, options = {}) {
         }
         break;
 
-      case 'admit':
-      case 'accepted':
-      case 'accept_user':
-        sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
-        window.dispatchEvent(new CustomEvent('meeting-admitted', { detail: { roomId } }));
-        break;
-
-      case 'deny':
-        window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
-        break;
-
-      case 'join-blocked':
-        sessionStorage.removeItem(`meeting_admitted_${roomId}`);
-        window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
-        break;
-
+      // admission cases are handled above before the early-return guards
       default:
         break;
     }

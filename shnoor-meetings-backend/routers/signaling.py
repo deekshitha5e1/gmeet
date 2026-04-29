@@ -144,13 +144,15 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                 if msg_type in {"admit", "accept_user"}:
                     manager.add_accepted_participant(room_id, target_id)
                 await sync_waiting_room(room_id)
-                
-                # Ensure the final type is correct and not overwritten by **data
+
                 response_type = "accepted" if msg_type in {"admit", "accept_user"} else "deny"
+                logger.info(f"Host {client_id} {response_type} participant {target_id} in room {room_id}")
+                # Send a clean message — do NOT spread **data to avoid leaking 'target'
+                # which would cause the participant's frontend to filter the message out.
                 await manager.send_to_client(room_id, target_id, {
-                    **data,
                     "type": response_type,
                     "sender": client_id,
+                    "room_id": room_id,
                 })
                 continue
 
