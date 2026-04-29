@@ -56,11 +56,12 @@ from fastapi.responses import JSONResponse
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     logger.error(f"Global exception caught: {exc}", exc_info=True)
+    
     # Check if it's a websocket request
     if "websocket" in str(type(request)).lower():
-        # We can't return a JSONResponse to a websocket handshake if it's already failed
         return None
-    return JSONResponse(
+        
+    response = JSONResponse(
         status_code=500,
         content={
             "detail": "Internal Server Error. Check server logs for details.",
@@ -68,6 +69,14 @@ async def global_exception_handler(request, exc):
             "type": str(type(exc).__name__)
         }
     )
+    
+    # Manually add CORS headers to the exception response
+    origin = request.headers.get("origin")
+    if origin in get_allowed_origins() or "*" in get_allowed_origins():
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        
+    return response
 
 # Include routers
 app.include_router(meeting.router)
