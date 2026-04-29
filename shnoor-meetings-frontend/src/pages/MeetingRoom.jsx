@@ -8,7 +8,7 @@ import ChatPanel from '../components/ChatPanel';
 import ParticipantsList from '../components/ParticipantsList';
 import PipPopup from '../components/PipPopup';
 import InPagePip from '../components/InPagePip';
-import { Info, Video, Maximize2, Copy, Check } from 'lucide-react';
+import { Video, Maximize2, Copy, Check } from 'lucide-react';
 import { getCurrentUser } from '../utils/currentUser';
 
 const MeetingRoom = () => {
