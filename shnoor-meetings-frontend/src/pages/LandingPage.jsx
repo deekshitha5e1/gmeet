@@ -27,8 +27,13 @@ export default function LandingPage() {
   const location = useLocation();
 
   const markMeetingHost = (roomId) => {
-    const normalizedEmail = (currentUser?.email || '').trim().toLowerCase();
-    localStorage.setItem(`meeting_host_${roomId}`, normalizedEmail);
+    const user = getCurrentUser();
+    const normalizedEmail = (user?.email || '').trim().toLowerCase();
+    if (normalizedEmail) {
+      localStorage.setItem(`meeting_host_${roomId}`, normalizedEmail);
+    } else if (user?.meetingUserId) {
+      localStorage.setItem(`meeting_host_${roomId}`, `id:${user.meetingUserId}`);
+    }
     sessionStorage.setItem(`meeting_role_${roomId}`, 'host');
   };
 

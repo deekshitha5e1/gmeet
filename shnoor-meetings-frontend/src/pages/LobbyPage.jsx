@@ -20,15 +20,21 @@ export default function LobbyPage() {
   const storedRole = sessionStorage.getItem(`meeting_role_${roomId}`);
   const normalizedCurrentEmail = (getCurrentUser()?.email || '').trim().toLowerCase();
   const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
-  const storedHostFlag = Boolean(normalizedCurrentEmail && storedHostEmail && storedHostEmail === normalizedCurrentEmail);
+  const storedHostFlag = Boolean(
+    normalizedCurrentEmail && 
+    storedHostEmail && 
+    storedHostEmail === normalizedCurrentEmail
+  ) || Boolean(
+    storedHostEmail === `id:${currentUser?.meetingUserId}`
+  );
+  
   const storedParticipantName = sessionStorage.getItem(`meeting_name_${roomId}`) || currentUser?.name || 'Guest';
-  const [resolvedRole, setResolvedRole] = useState(() => (storedRole === 'host' || storedHostFlag
-    ? 'host'
-    : roleFromLink === 'participant'
-      ? 'participant'
-      : storedRole === 'participant'
-        ? 'participant'
-        : undefined));
+  
+  const [resolvedRole, setResolvedRole] = useState(() => {
+    if (storedRole === 'host' || storedHostFlag) return 'host';
+    if (roleFromLink === 'participant' || storedRole === 'participant') return 'participant';
+    return undefined;
+  });
   const [stream, setStream] = useState(null);
   const initialMediaState = getPreJoinMediaState(roomId);
   const [isMicOn, setIsMicOn] = useState(initialMediaState.audioEnabled);
@@ -84,7 +90,8 @@ export default function LobbyPage() {
           );
 
           if (isMeetingHost) {
-            localStorage.setItem(`meeting_host_${roomId}`, normalizedCurrentEmail);
+            const hostValue = normalizedCurrentEmail || `id:${currentUser?.meetingUserId}`;
+            localStorage.setItem(`meeting_host_${roomId}`, hostValue);
             sessionStorage.setItem(`meeting_role_${roomId}`, 'host');
             sessionStorage.setItem(`meeting_name_${roomId}`, currentUser?.name || storedParticipantName);
             setResolvedRole('host');
