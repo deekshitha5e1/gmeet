@@ -203,9 +203,12 @@ export default function UpcomingMeetings() {
 
   const triggerRefresh = () => setRefreshCount(c => c + 1);
 
-  /* Sync user when localStorage changes (other tab login) */
+  /* Sync user and trigger reload when localStorage changes */
   useEffect(() => {
-    const handle = () => setCurrentUser(getCurrentUser());
+    const handle = () => {
+      setCurrentUser(getCurrentUser());
+      triggerRefresh();
+    };
     window.addEventListener('storage', handle);
     return () => window.removeEventListener('storage', handle);
   }, []);

@@ -148,6 +148,17 @@ export default function LandingPage() {
       });
       
       if (response.ok) {
+        // Update local storage so UpcomingMeetings reflects it instantly
+        const identityKey = currentUser?.email?.trim().toLowerCase() || currentUser?.meetingUserId || 'guest';
+        const storageKey = `shnoor_calendar_events_${identityKey}`;
+        try {
+          const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
+          const updated = [payload, ...stored.filter(e => e.id !== payload.id)];
+          localStorage.setItem(storageKey, JSON.stringify(updated));
+        } catch (e) {
+          console.error("Local sync failed", e);
+        }
+
         window.dispatchEvent(new Event('storage'));
         setLaterRoomId(finalRoomId);
         setShowInviteModal(true);
