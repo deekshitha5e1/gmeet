@@ -112,45 +112,35 @@ async def get_events(
         db_type = get_db_type()
         cursor = get_dict_cursor(conn)
         p = "%s" if db_type == "postgres" else "?"
-        normalized_user_id = normalize_uuid_or_none(user_id)
-        if user_id and not normalized_user_id:
-            raise HTTPException(status_code=400, detail="Invalid user ID")
-
+        
         normalized_email = (user_email or "").strip().lower() or None
+        normalized_user_id = normalize_uuid_or_none(user_id)
+
+        query_parts = []
+        query_params = []
 
         if normalized_email:
             like_pattern = f"%{normalized_email}%"
-            cursor.execute(
-                f"""
-                SELECT calendar_events.*, COALESCE(calendar_events.recipient_email, users.email) AS user_email
-                FROM calendar_events
-                LEFT JOIN users ON users.id = calendar_events.user_id
-                WHERE LOWER(COALESCE(calendar_events.recipient_email, users.email, '')) LIKE {p}
-                ORDER BY calendar_events.start_time ASC
-                """,
-                (like_pattern,),
-            )
-        elif normalized_user_id:
-            cursor.execute(
-                f"""
-                SELECT calendar_events.*, COALESCE(calendar_events.recipient_email, users.email) AS user_email
-                FROM calendar_events
-                LEFT JOIN users ON users.id = calendar_events.user_id
-                WHERE calendar_events.user_id = {p}
-                ORDER BY calendar_events.start_time ASC
-                """,
-                (normalized_user_id,),
-            )
-        else:
-            cursor.execute(
-                """
-                SELECT calendar_events.*, COALESCE(calendar_events.recipient_email, users.email) AS user_email
-                FROM calendar_events
-                LEFT JOIN users ON users.id = calendar_events.user_id
-                ORDER BY calendar_events.start_time ASC
-                LIMIT 50
-                """
-            )
+            query_parts.append(f"LOWER(COALESCE(calendar_events.recipient_email, users.email, '')) LIKE {p}")
+            query_params.append(like_pattern)
+        
+        if normalized_user_id:
+            query_parts.append(f"calendar_events.user_id = {p}")
+            query_params.append(normalized_user_id)
+
+        where_clause = " OR ".join(query_parts) if query_parts else "1=1"
+        
+        cursor.execute(
+            f"""
+            SELECT calendar_events.*, COALESCE(calendar_events.recipient_email, users.email) AS user_email
+            FROM calendar_events
+            LEFT JOIN users ON users.id = calendar_events.user_id
+            WHERE {where_clause}
+            ORDER BY calendar_events.start_time ASC
+            LIMIT 50
+            """,
+            tuple(query_params),
+        )
         
         rows = cursor.fetchall()
         events = []

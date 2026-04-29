@@ -266,21 +266,20 @@ export default function UpcomingMeetings() {
         const upcoming = mergedData
           .filter(e => {
             const cat = (e.category || '').trim().toLowerCase();
-            if (cat !== 'meetings' && cat !== 'meeting') return false;
+            // Show all meeting-like categories
+            if (!cat.includes('meeting')) return false;
 
             const start = new Date(e.start_time);
             
-            // Show if it is today or in the future! 
-            // This prevents "No upcoming meetings" if they scheduled one earlier today.
+            // Show if it is today or in the future
             return isAfter(start, now) || isSameDay(start, now);
           })
           .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
-          .slice(0, 5);
+          .slice(0, 10);
           
         setEvents(upcoming);
       } catch (err) {
         console.error('UpcomingMeetings fetch error:', err);
-        // Do not block UI with hard error, fallback to any local data loaded
       } finally {
         setLoading(false);
       }
