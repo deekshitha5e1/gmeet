@@ -266,15 +266,21 @@ export default function UpcomingMeetings() {
         const upcoming = mergedData
           .filter(e => {
             const cat = (e.category || '').trim().toLowerCase();
-            // Show any meeting or personal events that are recent or future
             if (cat === 'reminders' || cat === 'reminder') return false;
 
             const start = new Date(e.start_time);
             const end = e.end_time ? new Date(e.end_time) : null;
             
-            // Show if it is today, OR in the future, OR is currently happening
-            const isToday = isSameDay(start, now);
-            const isFuture = isAfter(start, now);
+            // Safer same-day check: compare Year, Month, Date
+            const isToday = 
+              start.getFullYear() === now.getFullYear() &&
+              start.getMonth() === now.getMonth() &&
+              start.getDate() === now.getDate();
+
+            // Future check
+            const isFuture = start > now;
+            
+            // Is it happening right now?
             const isCurrentlyHappening = end ? (start <= now && end >= now) : false;
 
             return isToday || isFuture || isCurrentlyHappening;
