@@ -37,12 +37,14 @@ async def create_meeting(payload: CreateMeetingRequest | None = None):
 
     try:
         if host_email or host_name or firebase_uid:
-            host_id = get_or_create_user(
+            user_record = get_or_create_user(
                 user_id=host_id,
                 firebase_uid=firebase_uid,
                 name=host_name,
                 email=host_email,
             )
+            if isinstance(user_record, dict):
+                host_id = user_record.get("id")
             manager.register_meeting(room_id, host_id=host_id, host_email=host_email, host_name=host_name)
 
         ensure_meeting_record(meeting_id=room_id, host_user_id=host_id)

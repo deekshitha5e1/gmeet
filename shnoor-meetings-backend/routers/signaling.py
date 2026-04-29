@@ -43,13 +43,17 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                 name = data.get("name") or ("Host" if requested_role == "host" else "Participant")
                 joined_at = data.get("joined_at")
                 email = data.get("email")
-                admitted = data.get("admitted", False)  # frontend passes this after host admits
-                user_id = get_or_create_user(
+                # admitted flag: frontend passes True when participant was already admitted
+                # (stored in sessionStorage). This makes the check resilient to server restarts
+                # where the in-memory accepted_participants set is cleared.
+                client_admitted = bool(data.get("admitted"))
+                user_record = get_or_create_user(
                     user_id=data.get("user_id") or client_id,
                     firebase_uid=data.get("firebase_uid"),
                     name=name,
                     email=email,
                 )
+                user_id = user_record.get("id") if isinstance(user_record, dict) else (data.get("user_id") or client_id)
                 meeting_record = get_meeting_record(room_id) or {}
                 meeting_host_email = (meeting_record.get("host_email") or "").strip().lower()
                 normalized_email = (email or "").strip().lower()
@@ -62,22 +66,25 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                 else:
                     role = "host" if is_meeting_host else "participant"
 
-                logger.info(f"join-room: client={client_id} name={name} email={email} requested_role={requested_role} resolved_role={role} is_meeting_host={is_meeting_host}")
+                logger.info(
+                    f"join-room: client={client_id} requested_role={requested_role} "
+                    f"resolved_role={role} email={email} admitted={client_admitted} "
+                    f"host_email={meeting_host_email}"
+                )
 
-                if role == "participant":
-                    # Auto-admit if:
-                    # 1. Already in the accepted set (admitted via lobby), OR
-                    # 2. Client passed admitted=true (already approved, page refresh etc.)
-                    if admitted:
-                        manager.add_accepted_participant(room_id, client_id)
-                    
-                    if not manager.is_participant_accepted(room_id, client_id):
-                        logger.info(f"join-room BLOCKED: participant {client_id} not admitted yet")
-                        await manager.send_to_websocket(websocket, {
-                            "type": "join-blocked",
-                            "reason": "not-admitted",
-                        })
-                        continue
+                # Auto-admit if the client carries the session-level admission token
+                if role == "participant" and client_admitted:
+                    manager.add_accepted_participant(room_id, client_id)
+
+                if role == "participant" and not manager.is_participant_accepted(room_id, client_id):
+                    logger.warning(
+                        f"join-room BLOCKED: client={client_id} not in accepted set for room={room_id}"
+                    )
+                    await manager.send_to_websocket(websocket, {
+                        "type": "join-blocked",
+                        "reason": "not-admitted",
+                    })
+                    continue
 
                 meeting_id = ensure_meeting_record(
                     room_id,
@@ -129,14 +136,12 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
 
             if msg_type in {"join-request", "ask_to_join"}:
                 requester_name = data.get("name", "Participant")
-                requester_picture = data.get("picture", None)
-                manager.add_waiting_request(room_id, client_id, requester_name, requester_picture)
+                manager.add_waiting_request(room_id, client_id, requester_name)
                 await manager.send_to_role(room_id, "host", {
                     "type": "join_request",
                     "sender": client_id,
                     "client_id": client_id,
                     "name": requester_name,
-                    "picture": requester_picture,
                 })
                 await sync_waiting_room(room_id)
                 continue
@@ -146,15 +151,13 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                 if msg_type in {"admit", "accept_user"}:
                     manager.add_accepted_participant(room_id, target_id)
                 await sync_waiting_room(room_id)
-
+                
+                # Ensure the final type is correct and not overwritten by **data
                 response_type = "accepted" if msg_type in {"admit", "accept_user"} else "deny"
-                logger.info(f"Host {client_id} {response_type} participant {target_id} in room {room_id}")
-                # Send a clean message — do NOT spread **data to avoid leaking 'target'
-                # which would cause the participant's frontend to filter the message out.
                 await manager.send_to_client(room_id, target_id, {
+                    **data,
                     "type": response_type,
                     "sender": client_id,
-                    "room_id": room_id,
                 })
                 continue
 
