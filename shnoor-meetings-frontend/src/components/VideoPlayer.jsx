@@ -56,7 +56,7 @@ const VideoPlayer = React.memo(({
           ref={videoRef}
           autoPlay
           playsInline
-          muted
+          muted={isLocal}
           className={`w-full h-full ${featured ? 'object-contain' : 'object-cover'} ${isLocal ? 'transform -scale-x-100' : ''}`}
         />
       ) : (
