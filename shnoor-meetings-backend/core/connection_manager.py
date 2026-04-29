@@ -23,14 +23,20 @@ class ConnectionManager:
         await websocket.accept()
         if room_id not in self.active_connections:
             self.active_connections[room_id] = []
+        if room_id not in self.user_records:
             self.user_records[room_id] = {}
+        if room_id not in self.connection_users:
             self.connection_users[room_id] = {}
+        # NOTE: Do NOT reset waiting_requests or accepted_participants here.
+        # They must survive across reconnections (host lobby WS → host room WS).
+        if room_id not in self.waiting_requests:
             self.waiting_requests[room_id] = {}
+        if room_id not in self.accepted_participants:
             self.accepted_participants[room_id] = set()
-            
+
         self.active_connections[room_id].append(websocket)
         self.user_records[room_id][websocket] = client_id
-        
+
         logger.info(f"Client {client_id} joined room {room_id}")
 
     def disconnect(self, websocket: WebSocket, room_id: str):
@@ -88,16 +94,22 @@ class ConnectionManager:
 
     async def send_to_role(self, room_id: str, role: str, message: dict):
         if room_id not in self.connection_users:
+            logger.warning(f"send_to_role({role}): room {room_id} not in connection_users")
             return
 
+        sent = False
         for connection, metadata in list(self.connection_users[room_id].items()):
             if (metadata or {}).get("role") != role:
                 continue
-
             try:
                 await connection.send_json(message)
+                sent = True
             except Exception as e:
                 logger.error(f"Error sending message to {role} connection: {e}")
+
+        if not sent:
+            logger.warning(f"send_to_role({role}): no {role} connections found in room {room_id}. "
+                           f"Connections: {[m for m in self.connection_users.get(room_id, {}).values()]}")
 
     def set_connection_user(self, room_id: str, websocket: WebSocket, metadata: dict):
         if room_id not in self.connection_users:
@@ -112,13 +124,14 @@ class ConnectionManager:
     def get_connection_user(self, room_id: str, websocket: WebSocket):
         return self.connection_users.get(room_id, {}).get(websocket)
 
-    def add_waiting_request(self, room_id: str, client_id: str, name: str):
+    def add_waiting_request(self, room_id: str, client_id: str, name: str, picture: str = None):
         if room_id not in self.waiting_requests:
             self.waiting_requests[room_id] = {}
 
         self.waiting_requests[room_id][client_id] = {
             "id": client_id,
             "name": name,
+            "picture": picture,
         }
 
     def remove_waiting_request(self, room_id: str, client_id: str):

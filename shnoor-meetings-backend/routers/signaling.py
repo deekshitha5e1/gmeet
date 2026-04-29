@@ -129,12 +129,14 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
 
             if msg_type in {"join-request", "ask_to_join"}:
                 requester_name = data.get("name", "Participant")
-                manager.add_waiting_request(room_id, client_id, requester_name)
+                requester_picture = data.get("picture", None)
+                manager.add_waiting_request(room_id, client_id, requester_name, requester_picture)
                 await manager.send_to_role(room_id, "host", {
                     "type": "join_request",
                     "sender": client_id,
                     "client_id": client_id,
                     "name": requester_name,
+                    "picture": requester_picture,
                 })
                 await sync_waiting_room(room_id)
                 continue
