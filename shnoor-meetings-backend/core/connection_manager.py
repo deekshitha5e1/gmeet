@@ -16,7 +16,7 @@ class ConnectionManager:
         # }
         self.rooms: Dict[str, Dict[str, Any]] = {}
         
-        # Additional metadata for legacy compatibility if needed
+        self.connection_metadata: Dict[str, Dict[WebSocket, dict]] = {}
         self.user_records: Dict[str, Dict[WebSocket, str]] = {}
         self.waiting_requests: Dict[str, Dict[str, dict]] = {}
         self.accepted_participants: Dict[str, set[str]] = {}
@@ -25,10 +25,7 @@ class ConnectionManager:
         await websocket.accept()
         
         if meeting_id not in self.rooms:
-            self.rooms[meeting_id] = {
-                "host": None,
-                "participants": []
-            }
+            self.rooms[meeting_id] = {"host": None, "participants": [], "metadata": {}}
             
         if meeting_id not in self.user_records:
             self.user_records[meeting_id] = {}
@@ -38,17 +35,38 @@ class ConnectionManager:
             self.accepted_participants[meeting_id] = set()
 
         if role == "host":
-            # If there was an old host connection, we might keep it or replace it.
-            # Usually, one host per meeting, but let's be flexible.
+            # If there was a previous host connection, move it to participants or close it
+            if self.rooms[meeting_id]["host"] and self.rooms[meeting_id]["host"] != websocket:
+                self.rooms[meeting_id]["participants"].append(self.rooms[meeting_id]["host"])
             self.rooms[meeting_id]["host"] = websocket
             self.accepted_participants[meeting_id].add(client_id)
             logger.info(f"Host {client_id} connected to meeting {meeting_id}")
         else:
-            self.rooms[meeting_id]["participants"].append(websocket)
+            if websocket not in self.rooms[meeting_id]["participants"]:
+                self.rooms[meeting_id]["participants"].append(websocket)
             logger.info(f"Participant {client_id} connected to meeting {meeting_id}")
 
         self.user_records[meeting_id][websocket] = client_id
+        
+        # Initialize connection metadata
+        if meeting_id not in self.connection_metadata:
+            self.connection_metadata[meeting_id] = {}
+        self.connection_metadata[meeting_id][websocket] = {
+            "id": client_id,
+            "role": role,
+            "name": "Participant" # Default
+        }
+        
         logger.info(f"WebSocket connected: meetingId={meeting_id}, role={role}, clientId={client_id}")
+
+    def update_metadata(self, meeting_id: str, websocket: WebSocket, metadata: dict):
+        if meeting_id in self.connection_metadata and websocket in self.connection_metadata[meeting_id]:
+            self.connection_metadata[meeting_id][websocket].update(metadata)
+
+    def get_room_metadata(self, meeting_id: str):
+        if meeting_id in self.connection_metadata:
+            return list(self.connection_metadata[meeting_id].values())
+        return []
 
     def promote_to_host(self, meeting_id: str, websocket: WebSocket, client_id: str):
         if meeting_id in self.rooms:

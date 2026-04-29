@@ -360,6 +360,24 @@ export function useWebRTC(roomId, options = {}) {
         break;
       }
 
+      case 'room-state':
+        if (Array.isArray(data.participants)) {
+          setParticipantsMetadata((prev) => {
+            const nextMetadata = { ...prev };
+            data.participants.forEach((p) => {
+              if (p.id !== clientId.current) {
+                nextMetadata[p.id] = {
+                  ...nextMetadata[p.id],
+                  name: p.name || 'Participant',
+                  role: p.role || 'participant',
+                };
+              }
+            });
+            return nextMetadata;
+          });
+        }
+        break;
+
       case 'chat':
         addMessage({ sender: data.sender, text: data.text });
         break;

@@ -120,7 +120,17 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
                 if role == "host":
                     await sync_waiting_room(meeting_id)
 
-                # Broadcast to others
+                # Update manager's metadata tracker
+                manager.update_metadata(meeting_id, websocket, {"name": name, "role": role})
+
+                # Send current room state (metadata of all others) to the NEW joiner
+                room_metadata = manager.get_room_metadata(meeting_id)
+                await websocket.send_json({
+                    "type": "room-state",
+                    "participants": room_metadata
+                })
+
+                # Broadcast the NEW joiner to everyone else
                 await manager.broadcast_to_all(meeting_id, {
                     "type": "user-joined",
                     "sender": cid,
