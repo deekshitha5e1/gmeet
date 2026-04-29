@@ -65,6 +65,7 @@ async function persistEventToApi(event, currentUser, options = {}) {
 
   const payload = {
     ...event,
+    id: event.id,                         // send the local UUID so the server preserves it
     category: normalizeEventCategory(event.category),
     user_id: currentUser?.meetingUserId || null,
     user_email: currentUser?.email || null,
@@ -85,7 +86,9 @@ async function persistEventToApi(event, currentUser, options = {}) {
     throw new Error(errorText || 'Calendar API request failed');
   }
 
-  return payload;
+  // Return server response (contains server-assigned id for POST)
+  const serverData = await response.json().catch(() => null);
+  return { payload, serverData };
 }
 
 export default function CalendarPage() {
@@ -212,7 +215,16 @@ export default function CalendarPage() {
     setIsModalOpen(false);
 
     try {
-      await persistEventToApi(payload, currentUser, { isEditing: Boolean(selectedEvent?.id) });
+      const result = await persistEventToApi(payload, currentUser, { isEditing: Boolean(selectedEvent?.id) });
+      // If server assigned a different id (shouldn't happen now, but guard anyway)
+      const serverId = result?.serverData?.id;
+      if (serverId && serverId !== payload.id) {
+        // Update localStorage with server-canonical id
+        const corrected = nextLocalEvents.map(ev =>
+          ev.id === payload.id ? { ...ev, id: serverId } : ev
+        );
+        writeStoredEvents(identityKey, corrected);
+      }
       await fetchEvents();
     } catch (err) {
       console.error('Failed to save event:', err);

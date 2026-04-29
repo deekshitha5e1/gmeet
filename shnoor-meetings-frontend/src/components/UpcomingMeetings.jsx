@@ -194,7 +194,10 @@ export default function UpcomingMeetings() {
   const [loading, setLoading]         = useState(true);
   const [currentUser, setCurrentUser] = useState(getCurrentUser());
   const [error, setError]             = useState(null);
+  const [refreshCount, setRefreshCount] = useState(0);
   const navigate = useNavigate();
+
+  const triggerRefresh = () => setRefreshCount(c => c + 1);
 
   /* Sync user when localStorage changes (other tab login) */
   useEffect(() => {
@@ -223,14 +226,22 @@ export default function UpcomingMeetings() {
         if (res.ok) {
           const data = await res.json();
           const now  = new Date();
-          const upcoming = data
+          const upcoming = (Array.isArray(data) ? data : [])
             .filter(e => {
+              // Only show scheduled meetings, not personal events or reminders
+              const cat = (e.category || '').trim().toLowerCase();
+              if (cat !== 'meetings' && cat !== 'meeting') return false;
+
               const start = new Date(e.start_time);
-              // keep: today same day OR strictly in the future
+              const end   = e.end_time ? new Date(e.end_time) : null;
+
+              // Show if: the meeting hasn't ended yet
+              // (if no end_time, show if start is today or future)
+              if (end) return end > now;
               return isAfter(start, now) || isSameDay(start, now);
             })
             .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
-            .slice(0, 3);
+            .slice(0, 5);           // show up to 5 upcoming meetings
           setEvents(upcoming);
         } else {
           const txt = await res.text();
@@ -243,8 +254,13 @@ export default function UpcomingMeetings() {
         setLoading(false);
       }
     };
+
     load();
-  }, [currentUser]);
+
+    // Auto-refresh every 60 s so newly-scheduled meetings appear without a reload
+    const timer = setInterval(load, 60_000);
+    return () => clearInterval(timer);
+  }, [currentUser, refreshCount]);
 
   /* ── Render states ── */
   if (loading) return (
@@ -262,7 +278,7 @@ export default function UpcomingMeetings() {
         <span className="text-sm font-bold">Something went wrong</span>
       </div>
       <p className="text-xs text-red-600/70 mb-3">{error}</p>
-      <button onClick={() => setCurrentUser(getCurrentUser())}
+      <button onClick={triggerRefresh}
         className="text-xs font-bold text-red-600 underline">Try again</button>
     </div>
   );
@@ -274,7 +290,7 @@ export default function UpcomingMeetings() {
         <span className="text-sm font-medium">No upcoming meetings</span>
       </div>
       <p className="text-xs text-gray-500 mb-3">Schedule a meeting from the Calendar page to see it here.</p>
-      <button onClick={() => setCurrentUser(getCurrentUser())}
+      <button onClick={triggerRefresh}
         className="text-[10px] font-bold text-blue-600 uppercase tracking-widest hover:underline">
         Refresh
       </button>
