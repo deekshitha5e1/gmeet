@@ -61,7 +61,10 @@ class ConnectionManager:
 
     def update_metadata(self, meeting_id: str, websocket: WebSocket, metadata: dict):
         if meeting_id in self.connection_metadata and websocket in self.connection_metadata[meeting_id]:
-            self.connection_metadata[meeting_id][websocket].update(metadata)
+            # Preserve existing ID and role if not provided
+            current = self.connection_metadata[meeting_id][websocket]
+            updated = {**current, **metadata}
+            self.connection_metadata[meeting_id][websocket] = updated
 
     def get_room_metadata(self, meeting_id: str):
         if meeting_id in self.connection_metadata:

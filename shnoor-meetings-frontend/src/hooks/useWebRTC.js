@@ -368,8 +368,7 @@ export function useWebRTC(roomId, options = {}) {
               if (p.id !== clientId.current) {
                 nextMetadata[p.id] = {
                   ...nextMetadata[p.id],
-                  name: p.name || 'Participant',
-                  role: p.role || 'participant',
+                  ...p,
                 };
               }
             });

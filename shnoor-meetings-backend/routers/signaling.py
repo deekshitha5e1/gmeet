@@ -155,6 +155,10 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
                     })
                 continue
 
+            if msg_type == "participant-update":
+                manager.update_metadata(meeting_id, websocket, data)
+                # Fall through to default broadcast below
+            
             # Default broadcast for all other signaling (RTC offers/answers)
             await manager.broadcast_to_all(meeting_id, {
                 "sender": cid,
