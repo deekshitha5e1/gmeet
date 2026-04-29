@@ -98,17 +98,29 @@ def init_db():
                         
                         if project_id:
                             # Build direct DSN
-                            direct_dsn = dsn.replace(":6543", ":5432")
-                            # Replace host with db.project.supabase.co
+                            # 1. Try .co (most common for Supabase DB)
+                            direct_dsn_co = dsn.replace(":6543", ":5432")
                             host_pattern = r"@[^:]+:"
-                            direct_dsn = re.sub(host_pattern, f"@db.{project_id}.supabase.co:", direct_dsn)
+                            direct_dsn_co = re.sub(host_pattern, f"@db.{project_id}.supabase.co:", direct_dsn_co)
                             
                             logger.info(f"Attempting PostgreSQL direct fallback to: db.{project_id}.supabase.co")
-                            _db_pool = ThreadedConnectionPool(1, 10, dsn=direct_dsn)
-                            _db_type = "postgres"
-                            _ensure_tables()
-                            logger.info("Connected via PostgreSQL direct fallback.")
-                            return
+                            try:
+                                _db_pool = ThreadedConnectionPool(1, 10, dsn=direct_dsn_co)
+                                _db_type = "postgres"
+                                _ensure_tables()
+                                logger.info("Connected via PostgreSQL direct fallback (.co).")
+                                return
+                            except Exception as co_err:
+                                logger.warning(f"Fallback to .co failed: {co_err}")
+                                
+                                # 2. Try .com (alternative)
+                                direct_dsn_com = direct_dsn_co.replace(".supabase.co:", ".supabase.com:")
+                                logger.info(f"Attempting PostgreSQL direct fallback to: db.{project_id}.supabase.com")
+                                _db_pool = ThreadedConnectionPool(1, 10, dsn=direct_dsn_com)
+                                _db_type = "postgres"
+                                _ensure_tables()
+                                logger.info("Connected via PostgreSQL direct fallback (.com).")
+                                return
                     except Exception as fe:
                         logger.error(f"PostgreSQL direct fallback failed: {fe}", exc_info=True)
 
