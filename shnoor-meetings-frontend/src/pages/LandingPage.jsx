@@ -10,6 +10,7 @@ import illustration from '../assets/illustration.png';
 import { buildApiUrl } from '../utils/api';
 import { getCurrentUser } from '../utils/currentUser';
 import UpcomingMeetings from '../components/UpcomingMeetings';
+import EventModal from '../components/EventModal';
 
 export default function LandingPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -20,6 +21,7 @@ export default function LandingPage() {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
+  const [showEventModal, setShowEventModal] = useState(false);
   const [laterRoomId, setLaterRoomId] = useState('');
   const currentUser = getCurrentUser();
   const dropdownRef = useRef(null);
@@ -114,47 +116,47 @@ export default function LandingPage() {
   };
 
   const handleCreateMeetingLater = async () => {
-    setIsLoading(true);
     setShowDropdown(false);
-    const frontendRoomId = crypto.randomUUID();
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-      const response = await fetch(buildApiUrl('/api/meetings/create'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-           room_id: frontendRoomId,
-           host_id: currentUser?.meetingUserId || null,
-           host_email: currentUser?.email || null,
-           host_name: currentUser?.name || null,
-           firebase_uid: currentUser?.firebaseUid || null,
-        }),
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-
-      const data = await response.json();
-      if (data.room_id) {
-        markMeetingHost(data.room_id);
-        setLaterRoomId(data.room_id);
-        setShowInviteModal(true);
-      }
-    } catch (err) {
-      console.error('Failed to create meeting for later:', err);
-      const fallbackRoomId = frontendRoomId;
-      markMeetingHost(fallbackRoomId);
-      setLaterRoomId(fallbackRoomId);
-      setShowInviteModal(true);
-    } finally {
-      setIsLoading(false);
-    }
+    setShowEventModal(true);
   };
 
   const handleScheduleCalendar = () => {
     setShowDropdown(false);
-    navigate('/calendar');
+    setShowEventModal(true);
+  };
+
+  const handleSaveNativeEvent = async (eventData) => {
+    setIsLoading(true);
+    setShowEventModal(false);
+    
+    const finalRoomId = eventData.room_id || eventData.id || crypto.randomUUID();
+    markMeetingHost(finalRoomId);
+    
+    try {
+      const payload = {
+        ...eventData,
+        user_id: currentUser?.meetingUserId || null,
+        user_name: currentUser?.name || 'Guest',
+        user_email: currentUser?.email || null,
+        room_id: finalRoomId,
+      };
+      
+      const response = await fetch(buildApiUrl('/api/calendar/events'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      if (response.ok) {
+        window.dispatchEvent(new Event('storage'));
+        setLaterRoomId(finalRoomId);
+        setShowInviteModal(true);
+      }
+    } catch (err) {
+      console.error('Failed to create calendar meeting:', err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleJoinMeeting = (e) => {
@@ -289,6 +291,13 @@ export default function LandingPage() {
         isOpen={showInviteModal} 
         onClose={() => setShowInviteModal(false)} 
         roomId={laterRoomId} 
+      />
+
+      <EventModal 
+        isOpen={showEventModal} 
+        onClose={() => setShowEventModal(false)} 
+        selectedDate={new Date()} 
+        onSave={handleSaveNativeEvent} 
       />
 
       {/* Join Meeting Modal */}
