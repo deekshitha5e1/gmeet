@@ -81,6 +81,9 @@ export default function LandingPage() {
     setShowDropdown(false);
     const frontendRoomId = crypto.randomUUID();
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+
       const response = await fetch(buildApiUrl('/api/meetings/create'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -91,7 +94,10 @@ export default function LandingPage() {
            host_name: currentUser?.name || null,
            firebase_uid: currentUser?.firebaseUid || null,
         }),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
+      
       const data = await response.json();
       if (data.room_id) {
         markMeetingHost(data.room_id);
@@ -112,6 +118,9 @@ export default function LandingPage() {
     setShowDropdown(false);
     const frontendRoomId = crypto.randomUUID();
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+
       const response = await fetch(buildApiUrl('/api/meetings/create'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -122,7 +131,10 @@ export default function LandingPage() {
            host_name: currentUser?.name || null,
            firebase_uid: currentUser?.firebaseUid || null,
         }),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
+
       const data = await response.json();
       if (data.room_id) {
         markMeetingHost(data.room_id);

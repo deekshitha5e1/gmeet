@@ -222,7 +222,14 @@ export default function UpcomingMeetings() {
         if (userEmail)   params.set('user_email', userEmail);
         else if (userId) params.set('user_id', userId);
 
-        const res = await fetch(buildApiUrl(`/api/calendar/events?${params}`));
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+        const res = await fetch(buildApiUrl(`/api/calendar/events?${params}`), {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
         if (res.ok) {
           const data = await res.json();
           const now  = new Date();
