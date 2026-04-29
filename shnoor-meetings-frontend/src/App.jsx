@@ -41,7 +41,7 @@ function App() {
         <Route path="/room/:id" element={<MeetingRoom />} />
         <Route path="/calendar" element={<ProtectedRoute><CalendarPage /></ProtectedRoute>} />
         <Route path="/calls" element={<ProtectedRoute><CallsPage /></ProtectedRoute>} />
-        <Route path="/left-meeting/:id" element={<ProtectedRoute><LeftMeetingPage /></ProtectedRoute>} />
+        <Route path="/left-meeting/:id" element={<LeftMeetingPage />} />
 
 
       </Routes>
