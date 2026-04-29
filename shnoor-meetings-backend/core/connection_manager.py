@@ -154,4 +154,17 @@ class ConnectionManager:
     def is_participant_accepted(self, meeting_id: str, client_id: str):
         return client_id in self.accepted_participants.get(meeting_id, set())
 
+    def register_meeting(self, meeting_id: str, **kwargs):
+        if meeting_id not in self.rooms:
+            self.rooms[meeting_id] = {
+                "host": None,
+                "participants": [],
+                "metadata": {}
+            }
+        self.rooms[meeting_id]["metadata"].update(kwargs)
+        logger.info(f"Meeting {meeting_id} registered with metadata: {kwargs}")
+
+    def get_registered_meeting(self, meeting_id: str):
+        return self.rooms.get(meeting_id, {}).get("metadata")
+
 manager = ConnectionManager()
