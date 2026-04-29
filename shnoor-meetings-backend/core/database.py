@@ -81,24 +81,36 @@ def init_db():
                 logger.info("PostgreSQL connection pool initialized successfully.")
                 return
             except Exception as e:
-                logger.error(f"PostgreSQL initialization failed: {e}")
-                if "Tenant or user not found" in str(e) and dsn and ":6543" in dsn:
-                    # Try direct fallback
+                logger.error(f"PostgreSQL initialization failed: {e}", exc_info=True)
+                if dsn and ("supabase.com" in dsn or "supabase.co" in dsn):
+                    # Try direct fallback with correct Supabase pattern: db.<project>.supabase.co
                     try:
                         import re
-                        direct_dsn = dsn.replace(":6543", ":5432").replace(".pooler.supabase.com", ".supabase.co")
+                        # Extract project ID from the user part (postgres.<project>) or the host
+                        project_id = None
                         match = re.search(r"postgres\.([a-z0-9]+)", dsn)
                         if match:
                             project_id = match.group(1)
-                            direct_dsn = re.sub(r"@[^:]+:", f"@db.{project_id}.supabase.co:", direct_dsn)
+                        else:
+                            match = re.search(r"([a-z0-9]+)\.pooler\.supabase\.com", dsn)
+                            if match:
+                                project_id = match.group(1)
                         
-                        _db_pool = ThreadedConnectionPool(1, 10, dsn=direct_dsn)
-                        _db_type = "postgres"
-                        _ensure_tables()
-                        logger.info("Connected via PostgreSQL direct fallback.")
-                        return
+                        if project_id:
+                            # Build direct DSN
+                            direct_dsn = dsn.replace(":6543", ":5432")
+                            # Replace host with db.project.supabase.co
+                            host_pattern = r"@[^:]+:"
+                            direct_dsn = re.sub(host_pattern, f"@db.{project_id}.supabase.co:", direct_dsn)
+                            
+                            logger.info(f"Attempting PostgreSQL direct fallback to: db.{project_id}.supabase.co")
+                            _db_pool = ThreadedConnectionPool(1, 10, dsn=direct_dsn)
+                            _db_type = "postgres"
+                            _ensure_tables()
+                            logger.info("Connected via PostgreSQL direct fallback.")
+                            return
                     except Exception as fe:
-                        logger.error(f"PostgreSQL direct fallback failed: {fe}")
+                        logger.error(f"PostgreSQL direct fallback failed: {fe}", exc_info=True)
 
     # Fallback to SQLite
     logger.info("Falling back to local SQLite database.")

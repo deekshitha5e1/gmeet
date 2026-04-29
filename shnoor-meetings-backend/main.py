@@ -51,14 +51,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.responses import JSONResponse
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     logger.error(f"Global exception caught: {exc}", exc_info=True)
-    return {
-        "status_code": 500,
-        "detail": "Internal Server Error. Check server logs for details.",
-        "message": str(exc)
-    }
+    # Check if it's a websocket request
+    if "websocket" in str(type(request)).lower():
+        # We can't return a JSONResponse to a websocket handshake if it's already failed
+        return None
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal Server Error. Check server logs for details.",
+            "message": str(exc),
+            "type": str(type(exc).__name__)
+        }
+    )
 
 # Include routers
 app.include_router(meeting.router)
