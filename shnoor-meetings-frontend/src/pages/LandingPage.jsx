@@ -257,7 +257,7 @@ export default function LandingPage() {
 
             <div className="mt-10 border-t border-gray-200 pt-8">
               <p className="text-gray-500 text-sm">
-                <a href="#" className="text-blue-600 hover:underline">Learn more</a> about Shnoor Meetings
+                <a href="#" className="text-blue-600 hover:underline">Learn more</a> about Shnoor Meetings (v1.2.5)
               </p>
             </div>
           </div>
