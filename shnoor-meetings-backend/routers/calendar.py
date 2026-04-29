@@ -52,6 +52,7 @@ class CalendarEvent(BaseModel):
     reminder_offset_minutes: Optional[int] = 5
 
 class CalendarEventCreate(BaseModel):
+    id: Optional[str] = None          # client may supply a stable UUID
     user_id: Optional[str] = None
     user_email: Optional[str] = None
     user_name: Optional[str] = None
@@ -181,7 +182,10 @@ async def get_events(
 
 @router.post("/events", response_model=CreateEventResponse)
 async def create_event(event: CalendarEventCreate):
-    event_id = str(uuid.uuid4())
+    # Use client-provided id if it is a valid UUID, otherwise generate one.
+    # This keeps localStorage and DB ids in sync so the home-page Upcoming
+    # Meetings panel can find the event without re-POSTing it.
+    event_id = normalize_uuid_or_none(event.id) or str(uuid.uuid4())
     
     try:
         user_id = get_or_create_user(
