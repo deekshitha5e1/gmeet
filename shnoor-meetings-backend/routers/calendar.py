@@ -119,15 +119,16 @@ async def get_events(
         normalized_email = (user_email or "").strip().lower() or None
 
         if normalized_email:
+            like_pattern = f"%{normalized_email}%"
             cursor.execute(
                 f"""
                 SELECT calendar_events.*, COALESCE(calendar_events.recipient_email, users.email) AS user_email
                 FROM calendar_events
                 LEFT JOIN users ON users.id = calendar_events.user_id
-                WHERE LOWER(COALESCE(calendar_events.recipient_email, users.email, '')) = {p}
+                WHERE LOWER(COALESCE(calendar_events.recipient_email, users.email, '')) LIKE {p}
                 ORDER BY calendar_events.start_time ASC
                 """,
-                (normalized_email,),
+                (like_pattern,),
             )
         elif normalized_user_id:
             cursor.execute(
