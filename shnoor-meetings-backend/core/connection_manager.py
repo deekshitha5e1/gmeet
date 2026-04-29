@@ -50,6 +50,18 @@ class ConnectionManager:
         self.user_records[meeting_id][websocket] = client_id
         logger.info(f"WebSocket connected: meetingId={meeting_id}, role={role}, clientId={client_id}")
 
+    def promote_to_host(self, meeting_id: str, websocket: WebSocket, client_id: str):
+        if meeting_id in self.rooms:
+            room = self.rooms[meeting_id]
+            # Remove from participants if it was there
+            if websocket in room["participants"]:
+                room["participants"].remove(websocket)
+            
+            # Set as host
+            room["host"] = websocket
+            self.accepted_participants[meeting_id].add(client_id)
+            logger.info(f"Connection promoted to HOST: meetingId={meeting_id}, clientId={client_id}")
+
     def disconnect(self, websocket: WebSocket, meeting_id: str):
         if meeting_id in self.rooms:
             room = self.rooms[meeting_id]

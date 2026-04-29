@@ -22,39 +22,52 @@ async def sync_waiting_room(meeting_id: str):
         "requests": requests,
     })
 
-@router.websocket("/ws/{meeting_id}/{role}")
-async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role: str, client_id: str = None):
+@router.websocket("/ws/{meeting_id}/{role_or_id}")
+async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: str, client_id: str = None):
     """
     WebSocket endpoint for handling signaling.
     Path format: /ws/{meeting_id}/{role}?client_id=...
+    Also supports old format: /ws/{meeting_id}/{client_id}
     """
-    # Fallback for client_id if not provided in query
-    if not client_id:
+    # Detect if role_or_id is a role or a client_id
+    is_explicit_role = role_or_id in ["host", "participant"]
+    role = role_or_id if is_explicit_role else "participant"
+    
+    # Final client ID resolution
+    cid = client_id or (role_or_id if not is_explicit_role else None)
+    if not cid:
         import uuid
-        client_id = str(uuid.uuid4())
+        cid = str(uuid.uuid4())
         
-    await manager.connect(websocket, meeting_id, role, client_id)
+    await manager.connect(websocket, meeting_id, role, cid)
 
     try:
         while True:
             data = await websocket.receive_json()
             msg_type = data.get("type")
             
+            # Allow upgrading to host via message (legacy frontend support)
+            if msg_type in ["host_join", "host-ready"]:
+                role = "host"
+                manager.promote_to_host(meeting_id, websocket, cid)
+                await sync_waiting_room(meeting_id)
+                continue
+
             # --- Logging join-request received ---
             if msg_type in ["join-request", "ask_to_join"]:
-                logger.info(f"join-request received from {client_id} for meeting {meeting_id}")
+                logger.info(f"join-request received from {cid} for meeting {meeting_id}")
                 
                 user_data = data.get("user") or {}
                 name = user_data.get("name") or data.get("name") or "Participant"
                 email = user_data.get("email") or data.get("email")
                 
-                manager.add_waiting_request(meeting_id, client_id, name, email)
+                manager.add_waiting_request(meeting_id, cid, name, email)
                 
                 # Send incoming-join-request ONLY to the host
                 success = await manager.send_to_host(meeting_id, {
                     "type": "incoming-join-request",
                     "user": {
-                        "id": client_id,
+                        "id": cid,
                         "name": name,
                         "email": email
                     }
@@ -74,24 +87,24 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role: str, c
                 client_admitted = bool(data.get("admitted"))
                 
                 user_record = get_or_create_user(
-                    user_id=data.get("user_id") or client_id,
+                    user_id=data.get("user_id") or cid,
                     firebase_uid=data.get("firebase_uid"),
                     name=name,
                     email=email,
                 )
-                user_id = user_record.get("id") if isinstance(user_record, dict) else (data.get("user_id") or client_id)
+                user_id = user_record.get("id") if isinstance(user_record, dict) else (data.get("user_id") or cid)
                 
                 # Security check for participants
                 if role == "participant":
-                    if not client_admitted and not manager.is_participant_accepted(meeting_id, client_id):
-                        logger.warning(f"join-room BLOCKED: {client_id} not admitted to {meeting_id}")
+                    if not client_admitted and not manager.is_participant_accepted(meeting_id, cid):
+                        logger.warning(f"join-room BLOCKED: {cid} not admitted to {meeting_id}")
                         await websocket.send_json({
                             "type": "join-blocked",
                             "reason": "not-admitted"
                         })
                         continue
                     else:
-                        manager.add_accepted_participant(meeting_id, client_id)
+                        manager.add_accepted_participant(meeting_id, cid)
 
                 # Database sync
                 mid = ensure_meeting_record(
@@ -110,7 +123,7 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role: str, c
                 # Broadcast to others
                 await manager.broadcast_to_all(meeting_id, {
                     "type": "user-joined",
-                    "sender": client_id,
+                    "sender": cid,
                     "name": name,
                     "role": role
                 })
@@ -128,25 +141,25 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role: str, c
                     response_type = "accepted" if msg_type in ["admit", "accept_user"] else "deny"
                     await manager.send_to_client(meeting_id, target_id, {
                         "type": response_type,
-                        "sender": client_id
+                        "sender": cid
                     })
                 continue
 
             # Default broadcast for all other signaling (RTC offers/answers)
             await manager.broadcast_to_all(meeting_id, {
-                "sender": client_id,
+                "sender": cid,
                 **data
             })
 
     except WebSocketDisconnect:
         manager.disconnect(websocket, meeting_id)
-        manager.remove_waiting_request(meeting_id, client_id)
+        manager.remove_waiting_request(meeting_id, cid)
         await sync_waiting_room(meeting_id)
         await manager.broadcast_to_all(meeting_id, {
             "type": "user-left",
-            "sender": client_id
+            "sender": cid
         })
-        logger.info(f"WebSocket disconnected: meetingId={meeting_id}, clientId={client_id}")
+        logger.info(f"WebSocket disconnected: meetingId={meeting_id}, clientId={cid}")
     except Exception as e:
-        logger.error(f"WebSocket error in meeting {meeting_id} for client {client_id}: {e}")
+        logger.error(f"WebSocket error in meeting {meeting_id} for client {cid}: {e}")
         manager.disconnect(websocket, meeting_id)
