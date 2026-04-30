@@ -160,9 +160,11 @@ export function useWebRTC(roomId, options = {}) {
       role: isHost.current ? 'host' : 'participant',
       isHandRaised,
       isSharingScreen,
+      isAudioEnabled,
+      isVideoEnabled,
       ...extraState,
     });
-  }, [isHandRaised, isSharingScreen, sendSignalingMessage]);
+  }, [isHandRaised, isSharingScreen, isAudioEnabled, isVideoEnabled, sendSignalingMessage]);
 
   const joinRoom = useCallback(() => {
     if (!autoJoin || joinedRoomRef.current || !ws.current || ws.current.readyState !== WebSocket.OPEN) {
@@ -407,6 +409,8 @@ export function useWebRTC(roomId, options = {}) {
             role: data.role || prev[peerId]?.role || 'participant',
             isHandRaised: typeof data.isHandRaised === 'boolean' ? data.isHandRaised : prev[peerId]?.isHandRaised,
             isSharingScreen: typeof data.isSharingScreen === 'boolean' ? data.isSharingScreen : prev[peerId]?.isSharingScreen,
+            isAudioEnabled: typeof data.isAudioEnabled === 'boolean' ? data.isAudioEnabled : prev[peerId]?.isAudioEnabled,
+            isVideoEnabled: typeof data.isVideoEnabled === 'boolean' ? data.isVideoEnabled : prev[peerId]?.isVideoEnabled,
           },
         }));
         break;
@@ -467,8 +471,10 @@ export function useWebRTC(roomId, options = {}) {
 
     if (!wasHost && nextIsHost && ws.current?.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify({ type: 'host_join' }));
-      syncParticipantState();
     }
+
+    // Sync state with other participants whenever media or metadata changes
+    syncParticipantState();
 
     // Sync local metadata for local tile display
     setParticipantsMetadata(prev => ({

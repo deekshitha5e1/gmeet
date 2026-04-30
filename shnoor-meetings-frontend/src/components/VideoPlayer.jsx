@@ -23,7 +23,7 @@ const VideoPlayer = React.memo(({
     let isMounted = true;
     const video = videoRef.current;
     
-    if (video && stream && isVideoEnabled) {
+    if (video && stream) {
       if (video.srcObject !== stream) {
         video.srcObject = stream;
       }
@@ -44,42 +44,55 @@ const VideoPlayer = React.memo(({
     }
 
     return () => { isMounted = false; };
-  }, [stream, isVideoEnabled]);
+  }, [stream]);
 
   return (
     <div className={`relative overflow-hidden border group flex items-center justify-center transition-all duration-300 w-full aspect-video rounded-2xl bg-gray-800 ${
       isSpeaking ? 'border-white shadow-[0_0_20px_rgba(255,255,255,0.2)]' : 'border-gray-700/50'
     }`}>
       
-      {isVideoEnabled && stream && stream.getVideoTracks().some(t => t.readyState === 'live') ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted={isLocal}
-          className={`w-full h-full ${featured ? 'object-contain' : 'object-cover'} ${isLocal ? 'transform -scale-x-100' : ''}`}
-        />
+      {stream ? (
+        <>
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted={isLocal}
+            className={`w-full h-full ${featured ? 'object-contain' : 'object-cover'} ${isLocal ? 'transform -scale-x-100' : ''} ${
+              isVideoEnabled && stream.getVideoTracks().some(t => t.readyState === 'live') ? 'opacity-100' : 'opacity-0 absolute'
+            }`}
+          />
+          {(!isVideoEnabled || !stream.getVideoTracks().some(t => t.readyState === 'live')) && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
+              <div className="relative flex items-center justify-center">
+                {/* Pulsing Voice Circle */}
+                {isSpeaking && isAudioEnabled && (
+                  <div 
+                    className="absolute rounded-full border-2 border-white/60 bg-white/5 transition-transform duration-75 ease-out"
+                    style={{ 
+                      width: '130%', 
+                      height: '130%', 
+                      transform: `scale(${1 + (audioLevel * 1.8)})`,
+                      opacity: 0.3 + (audioLevel * 0.7)
+                    }}
+                  />
+                )}
+                <ProfileAvatar
+                  name={label}
+                  picture={picture}
+                  className="h-20 w-20 md:h-24 md:w-24"
+                />
+              </div>
+            </div>
+          )}
+        </>
       ) : (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
-          <div className="relative flex items-center justify-center">
-            {/* Pulsing Voice Circle */}
-            {isSpeaking && isAudioEnabled && (
-              <div 
-                className="absolute rounded-full border-2 border-white/60 bg-white/5 transition-transform duration-75 ease-out"
-                style={{ 
-                  width: '130%', 
-                  height: '130%', 
-                  transform: `scale(${1 + (audioLevel * 1.8)})`,
-                  opacity: 0.3 + (audioLevel * 0.7)
-                }}
-              />
-            )}
-            <ProfileAvatar
-              name={label}
-              picture={picture}
-              className="h-20 w-20 md:h-24 md:w-24"
-            />
-          </div>
+          <ProfileAvatar
+            name={label}
+            picture={picture}
+            className="h-20 w-20 md:h-24 md:w-24"
+          />
         </div>
       )}
 
