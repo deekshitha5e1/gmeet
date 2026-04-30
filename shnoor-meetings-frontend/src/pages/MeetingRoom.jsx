@@ -180,6 +180,7 @@ const MeetingRoom = () => {
               <p className="text-sm font-medium leading-relaxed">{captions}</p>
             </div>
           )}
+
         </div>
 
         {activePanel === 'chat' && pipMode !== PIP_MODES.MINIMIZED && (
@@ -265,6 +266,7 @@ const MeetingRoom = () => {
             localStream={localStream}
             isVideoEnabled={isVideoEnabled}
             isAudioEnabled={isAudioEnabled}
+            isSharingScreen={isSharingScreen}
             onToggleVideo={toggleVideo}
             onToggleAudio={toggleAudio}
             onLeaveCall={handleLeave}
@@ -279,6 +281,7 @@ const MeetingRoom = () => {
           localStream={localStream}
           isVideoEnabled={isVideoEnabled}
           isAudioEnabled={isAudioEnabled}
+          isSharingScreen={isSharingScreen}
           onToggleVideo={toggleVideo}
           onToggleAudio={toggleAudio}
           onLeaveCall={handleLeave}

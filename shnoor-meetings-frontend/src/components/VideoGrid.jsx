@@ -30,6 +30,7 @@ const VideoGrid = React.memo(({
         isHandRaised: meta.isHandRaised,
         isAudioEnabled: meta.isAudioEnabled ?? true,
         isVideoEnabled: meta.isVideoEnabled ?? true,
+        isSharingScreen: meta.isSharingScreen ?? false,
       }));
 
     // 2. Add the local user tile
@@ -43,10 +44,11 @@ const VideoGrid = React.memo(({
       isHandRaised,
       isAudioEnabled,
       isVideoEnabled,
+      isSharingScreen,
     };
 
     return [localTile, ...remoteTiles];
-  }, [participantsMetadata, localClientId, localStream, remoteStreams, displayName, isHandRaised, isAudioEnabled, isVideoEnabled]);
+  }, [participantsMetadata, localClientId, localStream, remoteStreams, displayName, isHandRaised, isAudioEnabled, isVideoEnabled, isSharingScreen]);
 
   // Optimized Speaker Detection
   const { dominantSpeakerId, speakingIds, audioLevels } = useActiveSpeaker(tiles, getPeerConnection);

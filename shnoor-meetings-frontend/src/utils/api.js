@@ -1,5 +1,5 @@
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || 'https://gmeet-kr1v.onrender.com').replace(/\/$/, '');
-const wsBaseUrl = (import.meta.env.VITE_WS_BASE_URL || 'wss://gmeet-kr1v.onrender.com').replace(/\/$/, '');
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+const wsBaseUrl = (import.meta.env.VITE_WS_BASE_URL || '').replace(/\/$/, '');
 
 function getDefaultApiBaseUrl() {
   if (!import.meta.env.DEV) {

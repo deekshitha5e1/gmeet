@@ -103,6 +103,8 @@ export function useWebRTC(roomId, options = {}) {
   const joinRoomCallbackRef = useRef(null);
   const handleSignalingDataRef = useRef(null);
   const pendingMessagesRef = useRef([]);
+  // Stores the video RTCRtpTransceiver for each peer so we can reliably replaceTrack
+  const videoTransceiversRef = useRef({});
 
   const addMessage = useCallback((msg) => {
     setMessages((prev) => [...prev, msg]);
@@ -208,24 +210,28 @@ export function useWebRTC(roomId, options = {}) {
   }, [autoJoin, roomId, sendSignalingMessage, startSessionTracking]);
 
   const createPeerConnection = useCallback((peerId, stream) => {
-    if (!peerId) {
-      return null;
-    }
-
-    if (peerConnections.current[peerId]) {
-      return peerConnections.current[peerId];
-    }
+    if (!peerId) return null;
+    if (peerConnections.current[peerId]) return peerConnections.current[peerId];
 
     const pc = new RTCPeerConnection(ICE_SERVERS);
 
-    // Add local tracks if we have them; otherwise add transceivers so we
-    // can still receive remote tracks even when camera/mic is off.
-    if (stream && stream.getTracks().length > 0) {
-      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+    // Add audio
+    const audioTrack = stream?.getAudioTracks()[0] || null;
+    if (audioTrack) {
+      pc.addTrack(audioTrack, stream);
     } else {
       pc.addTransceiver('audio', { direction: 'recvonly' });
-      pc.addTransceiver('video', { direction: 'recvonly' });
     }
+
+    // ALWAYS add a sendrecv video transceiver and store its reference.
+    // This ensures ontrack fires correctly on BOTH sides, and replaceTrack
+    // always has a valid sender regardless of camera state.
+    const videoTrack = stream?.getVideoTracks()[0] || null;
+    const videoTransceiver = pc.addTransceiver(
+      videoTrack || 'video',
+      { direction: 'sendrecv', streams: stream ? [stream] : [] }
+    );
+    videoTransceiversRef.current[peerId] = videoTransceiver;
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
@@ -238,15 +244,20 @@ export function useWebRTC(roomId, options = {}) {
     };
 
     pc.ontrack = (event) => {
-      setRemoteStreams((prev) => ({
-        ...prev,
-        [peerId]: event.streams[0],
-      }));
+      setRemoteStreams((prev) => {
+        let incomingStream = event.streams[0];
+        if (!incomingStream) {
+          incomingStream = prev[peerId] || new MediaStream();
+          incomingStream.addTrack(event.track);
+        }
+        return { ...prev, [peerId]: incomingStream };
+      });
     };
 
     peerConnections.current[peerId] = pc;
     return pc;
   }, [sendSignalingMessage]);
+
 
   const handleSignalingData = useCallback(async (data, stream) => {
     const { type, sender, target } = data;
@@ -284,6 +295,7 @@ export function useWebRTC(roomId, options = {}) {
         if (!pc) {
           return;
         }
+        // NOTE: video transceiver is already added and stored in createPeerConnection.
 
         setParticipantsMetadata((prev) => ({
           ...prev,
@@ -294,6 +306,8 @@ export function useWebRTC(roomId, options = {}) {
             role: data.role || prev[peerId]?.role || 'participant',
             isHandRaised: prev[peerId]?.isHandRaised || false,
             isSharingScreen: prev[peerId]?.isSharingScreen || false,
+            isVideoEnabled: data.isVideoEnabled ?? prev[peerId]?.isVideoEnabled ?? true,
+            isAudioEnabled: data.isAudioEnabled ?? prev[peerId]?.isAudioEnabled ?? true,
           },
         }));
 
@@ -306,19 +320,41 @@ export function useWebRTC(roomId, options = {}) {
         break;
       }
 
+
       case 'offer': {
         const stream_ = stream || originalStream.current;
         const pcOffer = createPeerConnection(peerId, stream_);
-        if (!pcOffer) {
-          return;
-        }
+        if (!pcOffer) return;
 
         await pcOffer.setRemoteDescription(new RTCSessionDescription(data.offer));
+
+        // After setRemoteDescription, Chrome has assigned mids to transceivers.
+        // The transceiver WITH a mid is the one actually matched to the host's
+        // video m-line — this is the correct sender for replaceTrack.
+        // Without a mid: our pre-added transceiver (may not be connected to host).
+        // With a mid: the matched transceiver (ALWAYS the correct one to use).
+        const allVideoTCs = pcOffer.getTransceivers().filter(t =>
+          t.receiver?.track?.kind === 'video' || t.sender?.track?.kind === 'video'
+        );
+
+        // Prefer the transceiver with a mid assigned (matched to remote offer)
+        const matchedTC = allVideoTCs.find(t => t.mid !== null) || allVideoTCs[0];
+
+        if (matchedTC) {
+          // Force sendrecv so the participant can send screen share to host
+          if (matchedTC.direction !== 'sendrecv') {
+            matchedTC.direction = 'sendrecv';
+          }
+          // Always overwrite with the correctly matched transceiver
+          videoTransceiversRef.current[peerId] = matchedTC;
+        }
+
         const answer = await pcOffer.createAnswer();
         await pcOffer.setLocalDescription(answer);
         sendSignalingMessage({ type: 'answer', target: peerId, answer });
         break;
       }
+
 
       case 'answer': {
         const pcAnswer = peerConnections.current[peerId];
@@ -407,6 +443,8 @@ export function useWebRTC(roomId, options = {}) {
             role: data.role || prev[peerId]?.role || 'participant',
             isHandRaised: typeof data.isHandRaised === 'boolean' ? data.isHandRaised : prev[peerId]?.isHandRaised,
             isSharingScreen: typeof data.isSharingScreen === 'boolean' ? data.isSharingScreen : prev[peerId]?.isSharingScreen,
+            isVideoEnabled: typeof data.isVideoEnabled === 'boolean' ? data.isVideoEnabled : prev[peerId]?.isVideoEnabled,
+            isAudioEnabled: typeof data.isAudioEnabled === 'boolean' ? data.isAudioEnabled : prev[peerId]?.isAudioEnabled,
           },
         }));
         break;
@@ -414,6 +452,7 @@ export function useWebRTC(roomId, options = {}) {
       case 'join-request':
       case 'join_request':
       case 'incoming-join-request':
+        console.log('[WebRTC] Join request received:', data);
         if (isHost.current) {
           const requester = data.user || data;
           const reqId = requester.id || peerId;
@@ -423,6 +462,7 @@ export function useWebRTC(roomId, options = {}) {
               return prev;
             }
 
+            console.log('[WebRTC] Adding join request to state:', reqId);
             return [
               ...prev,
               {
@@ -432,10 +472,13 @@ export function useWebRTC(roomId, options = {}) {
               },
             ];
           });
+        } else {
+          console.warn('[WebRTC] Received join request but I am not marked as host. isHost.current:', isHost.current);
         }
         break;
 
       case 'waiting-room-sync':
+        console.log('[WebRTC] Waiting room sync received:', data.requests);
         if (isHost.current) {
           setActiveJoinRequests(Array.isArray(data.requests) ? data.requests : []);
         }
@@ -602,6 +645,7 @@ export function useWebRTC(roomId, options = {}) {
     sessionStorage.setItem(`meeting_name_${roomId}`, name);
     displayName.current = name;
     
+    console.log('[WebRTC] Requesting to join meeting:', roomId, 'as', name);
     // User requested structure:
     // { "type": "join-request", "meetingId": "...", "user": { "name": "...", "email": "..." } }
     sendSignalingMessage({
@@ -615,117 +659,203 @@ export function useWebRTC(roomId, options = {}) {
     });
   }, [roomId, sendSignalingMessage]);
 
-  const toggleVideo = useCallback(() => {
-    if (!localStream) {
-      setIsVideoEnabled((prev) => !prev);
-      return;
-    }
+  const toggleVideo = useCallback(async () => {
+    // Check for a real camera track (not canvas dummy) in originalStream
+    const realVideoTrack = originalStream.current?.getVideoTracks()
+      .find(t => t.readyState === 'live' && !t.label?.toLowerCase().includes('canvas'));
 
-    const videoTrack = localStream.getVideoTracks()[0];
-    if (videoTrack) {
-      videoTrack.enabled = !videoTrack.enabled;
-      setIsVideoEnabled(videoTrack.enabled);
-      return;
-    }
+    if (realVideoTrack) {
+      // Toggle it on/off
+      realVideoTrack.enabled = !realVideoTrack.enabled;
+      const newState = realVideoTrack.enabled;
+      setIsVideoEnabled(newState);
+      setParticipantsMetadata((prev) => ({
+        ...prev,
+        [clientId.current]: { ...prev[clientId.current] || {}, isVideoEnabled: newState },
+      }));
+      syncParticipantState({ isVideoEnabled: newState });
+    } else {
+      // No real camera yet — acquire one and replace dummy in all PCs
+      try {
+        const camStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const newTrack = camStream.getVideoTracks()[0];
+        if (!newTrack) return;
 
-    setIsVideoEnabled((prev) => !prev);
-  }, [localStream]);
+        // Use stored transceiver references for reliable replacement
+        await Promise.all(
+          Object.entries(videoTransceiversRef.current).map(([, transceiver]) =>
+            transceiver.sender.replaceTrack(newTrack).catch(e =>
+              console.error('[toggleVideo] replaceTrack failed:', e)
+            )
+          )
+        );
 
-  const toggleAudio = useCallback(() => {
-    if (!localStream) {
-      setIsAudioEnabled((prev) => !prev);
-      return;
+        // Update originalStream with real camera
+        if (originalStream.current) {
+          originalStream.current.getVideoTracks().forEach(t => { t.stop(); originalStream.current.removeTrack(t); });
+          originalStream.current.addTrack(newTrack);
+        }
+
+        // Create a new MediaStream so React detects the change
+        setLocalStream((prev) => {
+          const next = new MediaStream();
+          prev?.getAudioTracks().forEach(t => next.addTrack(t));
+          next.addTrack(newTrack);
+          return next;
+        });
+
+        setIsVideoEnabled(true);
+        setParticipantsMetadata((prev) => ({
+          ...prev,
+          [clientId.current]: { ...prev[clientId.current] || {}, isVideoEnabled: true },
+        }));
+        syncParticipantState({ isVideoEnabled: true });
+      } catch (e) {
+        console.error('[toggleVideo] Failed to acquire camera:', e);
+      }
     }
+  }, [syncParticipantState]);
+
+
+  const toggleAudio = useCallback(async () => {
+    let newState;
+    if (!localStream) return;
 
     const audioTrack = localStream.getAudioTracks()[0];
     if (audioTrack) {
       audioTrack.enabled = !audioTrack.enabled;
-      setIsAudioEnabled(audioTrack.enabled);
-      return;
+      newState = audioTrack.enabled;
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const newTrack = stream.getAudioTracks()[0];
+        if (newTrack) {
+          localStream.addTrack(newTrack);
+          originalStream.current?.addTrack(newTrack);
+          Object.values(peerConnections.current).forEach((pc) => {
+            const audioTransceiver = pc.getTransceivers().find(t => t.receiver.track.kind === 'audio');
+            if (audioTransceiver && audioTransceiver.sender) {
+              audioTransceiver.sender.replaceTrack(newTrack).catch(e => console.error("Replace audio track failed:", e));
+            }
+          });
+          newState = true;
+        }
+      } catch (e) {
+        console.error("Failed to acquire audio track:", e);
+        return;
+      }
     }
 
-    setIsAudioEnabled((prev) => !prev);
-  }, [localStream]);
+    setIsAudioEnabled(newState);
+    setParticipantsMetadata((prev) => ({
+      ...prev,
+      [clientId.current]: {
+        ...prev[clientId.current] || {},
+        isAudioEnabled: newState,
+      },
+    }));
+    syncParticipantState({ isAudioEnabled: newState });
+  }, [localStream, syncParticipantState]);
 
   const stopScreenShare = useCallback((screenTrack) => {
-    if (screenTrack) {
-      screenTrack.stop();
-    }
+    if (screenTrack) { screenTrack.stop(); screenTrack.onended = null; }
 
-    const cameraTrack = originalStream.current?.getVideoTracks?.()[0];
+    const cameraTrack = originalStream.current?.getVideoTracks()
+      .find(t => t.readyState === 'live' && !t.label?.toLowerCase().includes('canvas')) || null;
 
-    Object.values(peerConnections.current).forEach((pc) => {
-      const videoSender = pc.getSenders().find((sender) => sender.track?.kind === 'video');
-      if (videoSender && cameraTrack) {
-        videoSender.replaceTrack(cameraTrack);
-      }
+    // Use stored transceiver references
+    Object.values(videoTransceiversRef.current).forEach((transceiver) => {
+      transceiver.sender.replaceTrack(cameraTrack).catch(err =>
+        console.warn('[ScreenShare] Failed to restore camera track:', err)
+      );
     });
 
     setLocalStream(originalStream.current);
     setIsSharingScreen(false);
-
     setParticipantsMetadata((prev) => ({
       ...prev,
-      [clientId.current]: {
-        ...prev[clientId.current],
-        isSharingScreen: false,
-      },
+      [clientId.current]: { ...prev[clientId.current], isSharingScreen: false },
     }));
-
-    sendSignalingMessage({
-      type: 'participant-update',
-      name: displayName.current,
-      role: isHost.current ? 'host' : 'participant',
-      isHandRaised,
-      isSharingScreen: false,
-    });
-  }, [isHandRaised, sendSignalingMessage]);
+    syncParticipantState({ isSharingScreen: false });
+  }, [syncParticipantState]);
 
   const toggleScreenShare = useCallback(async () => {
     try {
       if (!isSharingScreen) {
-        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-        activeStreamsRef.current.push(screenStream);
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: { cursor: 'always' },
+          audio: false,
+        });
 
+        activeStreamsRef.current.push(screenStream);
         const screenTrack = screenStream.getVideoTracks()[0];
 
-        Object.values(peerConnections.current).forEach((pc) => {
-          const videoSender = pc.getSenders().find((sender) => sender.track?.kind === 'video');
-          if (videoSender) {
-            videoSender.replaceTrack(screenTrack);
-          }
-        });
+        // Triple-fallback approach to guarantee we find the video sender
+        await Promise.all(
+          Object.entries(peerConnections.current).map(async ([peerId, pc]) => {
+            // Strategy 1: Use stored transceiver reference
+            const storedTransceiver = videoTransceiversRef.current[peerId];
+            if (storedTransceiver) {
+              try {
+                await storedTransceiver.sender.replaceTrack(screenTrack);
+                return;
+              } catch (e) {
+                console.warn('[ScreenShare] stored transceiver replaceTrack failed, trying fallback:', e);
+              }
+            }
 
-        screenTrack.onended = () => {
-          stopScreenShare(screenTrack);
-        };
+            // Strategy 2: Find video sender via getSenders (track.kind === 'video')
+            const videoSender = pc.getSenders().find(s => s.track?.kind === 'video');
+            if (videoSender) {
+              try {
+                await videoSender.replaceTrack(screenTrack);
+                return;
+              } catch (e) {
+                console.warn('[ScreenShare] getSenders fallback failed:', e);
+              }
+            }
 
-        setLocalStream(screenStream);
+            // Strategy 3: Walk all transceivers and pick the first video one
+            for (const tc of pc.getTransceivers()) {
+              if (tc.sender && (tc.sender.track?.kind === 'video' || tc.receiver?.track?.kind === 'video')) {
+                try {
+                  await tc.sender.replaceTrack(screenTrack);
+                  // Store this transceiver for future use
+                  videoTransceiversRef.current[peerId] = tc;
+                  return;
+                } catch (e) {
+                  console.warn('[ScreenShare] transceiver walk failed:', e);
+                }
+              }
+            }
+
+            console.error('[ScreenShare] Could not find any video sender for peer:', peerId);
+          })
+        );
+
+        screenTrack.onended = () => stopScreenShare(screenTrack);
+
+        const newLocalStream = new MediaStream();
+        originalStream.current?.getAudioTracks().forEach(t => newLocalStream.addTrack(t));
+        newLocalStream.addTrack(screenTrack);
+
+        setLocalStream(newLocalStream);
         setIsSharingScreen(true);
-
         setParticipantsMetadata((prev) => ({
           ...prev,
-          [clientId.current]: {
-            ...prev[clientId.current],
-            isSharingScreen: true,
-          },
+          [clientId.current]: { ...prev[clientId.current] || {}, isSharingScreen: true },
         }));
-
-        sendSignalingMessage({
-          type: 'participant-update',
-          name: displayName.current,
-          role: isHost.current ? 'host' : 'participant',
-          isHandRaised,
-          isSharingScreen: true,
-        });
+        syncParticipantState({ isSharingScreen: true });
       } else {
-        const screenTrack = localStream?.getVideoTracks?.()[0];
+        const screenTrack = localStream?.getVideoTracks?.()?.[0];
         stopScreenShare(screenTrack);
       }
     } catch (error) {
-      console.error('Error sharing screen:', error);
+      console.error('[ScreenShare] Error:', error);
+      setIsSharingScreen(false);
     }
-  }, [isHandRaised, isSharingScreen, localStream, sendSignalingMessage, stopScreenShare]);
+  }, [isSharingScreen, localStream, stopScreenShare, syncParticipantState]);
+
 
   const toggleRaiseHand = useCallback(() => {
     const nextState = !isHandRaised;

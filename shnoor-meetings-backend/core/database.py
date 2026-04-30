@@ -271,29 +271,53 @@ def get_or_create_user(user_id=None, firebase_uid=None, name=None, email=None, p
         cursor = get_dict_cursor(conn)
         user = None
         p = "%s" if _db_type == "postgres" else "?"
+        clean_email = email.strip().lower() if email else None
         
+        # Check by ID
         if user_id:
             cursor.execute(f"SELECT * FROM users WHERE id = {p}", (str(user_id),))
             user = cursor.fetchone()
-        
+        # Check by Firebase UID if not found
+
         if not user and firebase_uid:
             cursor.execute(f"SELECT * FROM users WHERE firebase_uid = {p}", (firebase_uid,))
             user = cursor.fetchone()
             
-        if not user and email:
-            cursor.execute(f"SELECT * FROM users WHERE email = {p}", (email.strip().lower(),))
+        # Check by Email if not found
+        if not user and clean_email:
+            cursor.execute(f"SELECT * FROM users WHERE email = {p}", (clean_email,))
             user = cursor.fetchone()
-
-        if user: return dict(user)
+            
+        if user: 
+            return dict(user)
 
         new_id = str(user_id or uuid.uuid4())
-        placeholders = "%s, %s, %s, %s, %s" if _db_type == 'postgres' else "?, ?, ?, ?, ?"
-        cursor.execute(f"""
-            INSERT INTO users (id, firebase_uid, name, email, profile_picture)
-            VALUES ({placeholders})
-        """, (new_id, firebase_uid, name, email.strip().lower() if email else None, profile_picture))
-        conn.commit()
-        return {"id": new_id, "firebase_uid": firebase_uid, "name": name, "email": email, "profile_picture": profile_picture}
+        
+        if _db_type == 'postgres':
+            cursor.execute("""
+                INSERT INTO users (id, firebase_uid, name, email, profile_picture)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (email) DO UPDATE SET
+                    firebase_uid = COALESCE(EXCLUDED.firebase_uid, users.firebase_uid),
+                    name = COALESCE(EXCLUDED.name, users.name),
+                    profile_picture = COALESCE(EXCLUDED.profile_picture, users.profile_picture)
+                RETURNING *
+            """, (new_id, firebase_uid, name, clean_email, profile_picture))
+            user = cursor.fetchone()
+            conn.commit()
+            return dict(user) if user else None
+        else:
+            # SQLite ON CONFLICT
+            cursor.execute(f"""
+                INSERT INTO users (id, firebase_uid, name, email, profile_picture)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(email) DO UPDATE SET
+                    firebase_uid = IFNULL(excluded.firebase_uid, firebase_uid),
+                    name = IFNULL(excluded.name, name),
+                    profile_picture = IFNULL(excluded.profile_picture, profile_picture)
+            """, (new_id, firebase_uid, name, clean_email, profile_picture))
+            conn.commit()
+            return {"id": new_id, "firebase_uid": firebase_uid, "name": name, "email": email, "profile_picture": profile_picture}
     finally:
         release_db_connection(conn)
 

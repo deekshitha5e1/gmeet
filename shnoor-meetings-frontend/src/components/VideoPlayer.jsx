@@ -12,52 +12,57 @@ const VideoPlayer = React.memo(({
   isSpeaking = false,
   isVideoEnabled = true,
   isAudioEnabled = true,
+  isSharingScreen = false,
   audioLevel = 0,
   featured = false,
   compact = false,
 }) => {
   const videoRef = useRef(null);
+  const prevIsSharingRef = useRef(isSharingScreen);
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
     const video = videoRef.current;
-    
-    if (video && stream && isVideoEnabled) {
-      if (video.srcObject !== stream) {
+    const justStartedSharing = isSharingScreen && !prevIsSharingRef.current;
+    prevIsSharingRef.current = isSharingScreen;
+
+    const shouldPlay = isVideoEnabled || isSharingScreen;
+
+    if (video && stream && shouldPlay) {
+      if (video.srcObject !== stream || justStartedSharing) {
+        video.srcObject = null;
         video.srcObject = stream;
       }
-      
-      const playVideo = async () => {
-        try {
-          if (video.paused) {
-            await video.play();
-            if (isMounted) setIsLoaded(true);
-          }
-        } catch (err) {
-          if (err.name !== 'AbortError') {
-            console.warn('Video play failed', err);
-          }
-        }
-      };
-      playVideo();
+      video.play().then(() => { if (isMounted) setIsLoaded(true); })
+        .catch(err => { if (err.name !== 'AbortError') console.warn('Video play failed', err); });
     }
 
     return () => { isMounted = false; };
-  }, [stream, isVideoEnabled]);
+  }, [stream, isVideoEnabled, isSharingScreen]);
+
+  // When screen sharing: show video as soon as stream exists (track frames arrive via replaceTrack)
+  // When camera: require a live video track
+  const showVideo = isSharingScreen
+    ? !!stream
+    : isVideoEnabled && !!stream && stream.getVideoTracks().some(t => t.readyState === 'live');
 
   return (
     <div className={`relative overflow-hidden border group flex items-center justify-center transition-all duration-300 w-full aspect-video rounded-2xl bg-gray-800 ${
       isSpeaking ? 'border-white shadow-[0_0_20px_rgba(255,255,255,0.2)]' : 'border-gray-700/50'
     }`}>
       
-      {isVideoEnabled && stream && stream.getVideoTracks().some(t => t.readyState === 'live') ? (
+      {showVideo ? (
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted={isLocal}
-          className={`w-full h-full ${featured ? 'object-contain' : 'object-cover'} ${isLocal ? 'transform -scale-x-100' : ''}`}
+          className={`w-full h-full ${
+            (featured || isSharingScreen) ? 'object-contain' : 'object-cover'
+          } ${
+            (isLocal && !isSharingScreen) ? 'transform -scale-x-100' : ''
+          }`}
         />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-900">

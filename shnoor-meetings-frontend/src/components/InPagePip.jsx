@@ -9,6 +9,7 @@ export default function InPagePip({
   localStream,
   isVideoEnabled,
   isAudioEnabled,
+  isSharingScreen = false,
   onToggleVideo,
   onToggleAudio,
   onLeaveCall,
@@ -26,10 +27,12 @@ export default function InPagePip({
   const dragStartPos = useRef({ x: 0, y: 0 });
   const videoRef = useRef(null);
 
+  const shouldShowVideo = isVideoEnabled || isSharingScreen;
+
   // Bind stream to video element and handle play
   useEffect(() => {
     let isMounted = true;
-    if (videoRef.current && localStream) {
+    if (videoRef.current && localStream && shouldShowVideo) {
       const element = videoRef.current;
       element.srcObject = localStream;
       
@@ -48,7 +51,7 @@ export default function InPagePip({
       playVideo();
     }
     return () => { isMounted = false; };
-  }, [localStream, isVideoEnabled]);
+  }, [localStream, shouldShowVideo]);
 
   // Dragging logic - Only enable if NOT in a full-window portal
   const handleMouseDown = (e) => {
@@ -117,13 +120,13 @@ export default function InPagePip({
 
       {/* Video Content */}
       <div className="relative w-full h-full bg-black">
-        {isVideoEnabled && localStream ? (
+        {shouldShowVideo && localStream ? (
           <video
             ref={videoRef}
             autoPlay
             playsInline
             muted
-            className="w-full h-full object-cover mirror"
+            className={`w-full h-full ${isSharingScreen ? 'object-contain' : 'object-cover mirror'}`}
             style={{ pointerEvents: 'none' }} // Disable right-click/controls
           />
         ) : (
@@ -131,6 +134,12 @@ export default function InPagePip({
             <div className="w-20 h-20 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center">
               <VideoOff className="text-gray-600" size={32} />
             </div>
+          </div>
+        )}
+
+        {isSharingScreen && (
+          <div className="absolute inset-x-0 bottom-16 bg-gradient-to-t from-black/80 to-transparent p-2 opacity-100 group-hover:opacity-0 transition-opacity z-10">
+            <p className="text-[10px] font-bold text-white uppercase tracking-wider text-center">You are sharing your screen</p>
           </div>
         )}
 

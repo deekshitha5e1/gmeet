@@ -81,6 +81,11 @@ class ConnectionManager:
             # Set as host
             room["host"] = websocket
             self.accepted_participants[meeting_id].add(client_id)
+            
+            # Ensure metadata role is synced
+            if meeting_id in self.connection_metadata and websocket in self.connection_metadata[meeting_id]:
+                self.connection_metadata[meeting_id][websocket]["role"] = "host"
+                
             logger.info(f"Connection promoted to HOST: meetingId={meeting_id}, clientId={client_id}")
 
     def disconnect(self, websocket: WebSocket, meeting_id: str):
@@ -105,16 +110,23 @@ class ConnectionManager:
                 logger.info(f"Meeting {meeting_id} cleared from memory")
 
     async def send_to_host(self, meeting_id: str, message: dict):
-        if meeting_id in self.rooms:
-            host_ws = self.rooms[meeting_id].get("host")
-            if host_ws:
-                try:
-                    await host_ws.send_json(message)
-                    logger.info(f"Message sent to host in {meeting_id}: {message.get('type')}")
-                    return True
-                except Exception as e:
-                    logger.error(f"Error sending message to host: {e}")
-        logger.warning(f"No active host connection found for meeting {meeting_id}")
+        """Broadcasts a message to ALL connections marked as host for this meeting."""
+        sent_count = 0
+        logger.info(f"Attempting to send {message.get('type')} to host in meeting {meeting_id}")
+        if meeting_id in self.connection_metadata:
+            for ws, meta in self.connection_metadata[meeting_id].items():
+                if meta.get("role") == "host":
+                    try:
+                        await ws.send_json(message)
+                        sent_count += 1
+                    except Exception as e:
+                        logger.error(f"Error sending message to host connection: {e}")
+        
+        if sent_count > 0:
+            logger.info(f"Message {message.get('type')} sent to {sent_count} host connection(s) in {meeting_id}")
+            return True
+            
+        logger.warning(f"No active host connection found for meeting {meeting_id}. Metadata keys: {list(self.connection_metadata.get(meeting_id, {}).keys())}")
         return False
 
     async def broadcast_to_participants(self, meeting_id: str, message: dict):
