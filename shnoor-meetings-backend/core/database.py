@@ -275,10 +275,12 @@ def get_or_create_user(user_id=None, firebase_uid=None, name=None, email=None, p
         if user_id:
             cursor.execute(f"SELECT * FROM users WHERE id = {p}", (str(user_id),))
             user = cursor.fetchone()
-        elif firebase_uid:
+        
+        if not user and firebase_uid:
             cursor.execute(f"SELECT * FROM users WHERE firebase_uid = {p}", (firebase_uid,))
             user = cursor.fetchone()
-        elif email:
+            
+        if not user and email:
             cursor.execute(f"SELECT * FROM users WHERE email = {p}", (email.strip().lower(),))
             user = cursor.fetchone()
 
