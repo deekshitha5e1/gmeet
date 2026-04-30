@@ -17,6 +17,22 @@ export default function MeetingHeader({ onOpenChatbot, toggleSidebar }) {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const user = JSON.parse(localStorage.getItem('user') || 'null');
 
+  const getAvatarColor = (str) => {
+    if (!str) return 'bg-emerald-600';
+    const colors = [
+      'bg-blue-600', 'bg-emerald-600', 'bg-violet-600', 
+      'bg-amber-600', 'bg-rose-600', 'bg-indigo-600',
+      'bg-cyan-600', 'bg-fuchsia-600'
+    ];
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
+  };
+
+  const avatarColor = getAvatarColor(user?.email || user?.name || 'Guest');
+
   useEffect(() => {
     const timer = window.setInterval(() => {
       setCurrentTime(format(new Date(), 'HH:mm - EEE, d MMM'));
@@ -92,12 +108,15 @@ export default function MeetingHeader({ onOpenChatbot, toggleSidebar }) {
           <Menu size={24} />
         </button>
 
-        <div className="flex items-center gap-2 ml-1">
+        <div 
+          className="flex items-center gap-2 ml-1 cursor-pointer hover:opacity-80 transition-opacity"
+          onClick={() => navigate('/')}
+        >
           <div className="w-10 h-10 overflow-hidden">
             <img src="/logo.jpg" alt="logo" className="w-full h-full" />
           </div>
 
-          <span className="text-lg md:text-xl text-gray-600">
+          <span className="text-lg md:text-xl font-medium text-gray-700">
             Shnoor{" "}
             <span className="text-gray-500 hidden sm:inline">
               International LLC Meetings
@@ -145,24 +164,28 @@ export default function MeetingHeader({ onOpenChatbot, toggleSidebar }) {
             </button>
             <div className="relative ml-2">
               <button
-                className="w-10 h-10 bg-emerald-600 rounded-full flex items-center justify-center border-2 border-white shadow-sm cursor-pointer overflow-hidden"
+                className={`w-10 h-10 ${avatarColor} rounded-full flex items-center justify-center border-2 border-white shadow-sm cursor-pointer overflow-hidden`}
                 onClick={() => setIsProfileOpen((prev) => !prev)}
               >
                 {user?.picture ? (
                   <img src={user.picture} alt={user.name || 'User'} className="w-full h-full object-cover" />
                 ) : (
-                  <User size={20} className="text-white" />
+                  <span className="text-white font-bold text-lg uppercase">
+                    {(user?.name || user?.email || 'G')[0]}
+                  </span>
                 )}
               </button>
 
               {isProfileOpen && (
                 <div className="absolute right-0 top-12 w-72 rounded-2xl border border-gray-200 bg-white p-4 shadow-xl">
                   <div className="flex items-center gap-3">
-                    <div className="h-12 w-12 rounded-full bg-emerald-600 overflow-hidden flex items-center justify-center">
+                    <div className={`h-12 w-12 rounded-full ${avatarColor} overflow-hidden flex items-center justify-center`}>
                       {user?.picture ? (
                         <img src={user.picture} alt={user.name || 'User'} className="w-full h-full object-cover" />
                       ) : (
-                        <User size={22} className="text-white" />
+                        <span className="text-white font-bold text-xl uppercase">
+                          {(user?.name || user?.email || 'G')[0]}
+                        </span>
                       )}
                     </div>
                     <div className="min-w-0">

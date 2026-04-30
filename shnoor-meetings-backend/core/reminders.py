@@ -78,16 +78,30 @@ def _get_missing_resend_keys():
 # ─── Time Formatting ──────────────────────────────────────────────────────────
 
 def _format_dt(value) -> str:
-    if isinstance(value, datetime):
-        tz = value.tzname() or "UTC"
-        return value.strftime(f"%B %d, %Y at %I:%M %p {tz}")
-    if value:
-        try:
+    from datetime import timedelta
+    if not value:
+        return "—"
+    
+    try:
+        if isinstance(value, datetime):
+            dt = value
+        else:
+            # Handle ISO strings (Z or offset)
             dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-            return dt.strftime("%B %d, %Y at %I:%M %p UTC")
-        except Exception:
-            return str(value)
-    return "—"
+        
+        # Convert to IST (UTC + 5:30)
+        ist_offset = timedelta(hours=5, minutes=30)
+        # If dt is naive, assume it is UTC. If it has tzinfo, convert it.
+        if dt.tzinfo is None:
+            ist_dt = dt + ist_offset
+        else:
+            from datetime import timezone
+            ist_dt = dt.astimezone(timezone(ist_offset))
+            
+        return ist_dt.strftime("%B %d, %Y at %I:%M %p IST")
+    except Exception as e:
+        print(f"Error formatting date {value}: {e}")
+        return str(value)
 
 
 def _get_meet_link(event: dict) -> str:
@@ -95,7 +109,7 @@ def _get_meet_link(event: dict) -> str:
     if not room_id:
         return ""
     frontend_url = (os.getenv("FRONTEND_URL") or FRONTEND_URL).rstrip("/")
-    return f"{frontend_url}/meeting/{room_id}"
+    return f"{frontend_url}/meeting/{room_id}?role=participant"
 
 
 def _parse_emails(event: dict):

@@ -60,19 +60,63 @@ function useCountdown(startTime) {
   return countdown;
 }
 
-/** Single meeting card with live countdown badge */
-function MeetingCard({ event }) {
+/** Single meeting card with live countdown badge and full details */
+function MeetingCard({ event, onRefresh }) {
   const navigate = useNavigate();
   const countdown = useCountdown(event.start_time);
+  const [showDetails, setShowDetails] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const meetingUrl = event.room_id ? `${window.location.origin}/meeting/${event.room_id}?role=participant` : '';
 
   const handleCardClick = () => {
-    if (event.room_id) navigate(`/meeting/${event.room_id}`);
-    else navigate('/calendar');
+    setShowDetails(!showDetails);
   };
 
   const handleJoin = (e) => {
     e.stopPropagation();
-    navigate(`/meeting/${event.room_id}`);
+    if (event.room_id) navigate(`/meeting/${event.room_id}`);
+  };
+
+  const handleCopyLink = (e) => {
+    e.stopPropagation();
+    if (!meetingUrl) return;
+    navigator.clipboard.writeText(meetingUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCancel = async (e) => {
+    e.stopPropagation();
+    if (!window.confirm(`Are you sure you want to cancel "${event.title}"?`)) return;
+
+    setIsDeleting(true);
+    try {
+      const res = await fetch(buildApiUrl(`/api/calendar/events/${event.id}`), {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        const user = getCurrentUser();
+        const identityKey = user?.email?.trim().toLowerCase() || user?.meetingUserId || 'guest';
+        const storageKey = `shnoor_calendar_events_${identityKey}`;
+        const stored = localStorage.getItem(storageKey);
+        if (stored) {
+          const events = JSON.parse(stored);
+          const filtered = events.filter(ev => ev.id !== event.id);
+          localStorage.setItem(storageKey, JSON.stringify(filtered));
+          window.dispatchEvent(new Event('storage'));
+        }
+        onRefresh?.();
+      } else {
+        alert("Failed to cancel meeting.");
+      }
+    } catch (err) {
+      console.error("Cancel meeting error:", err);
+      alert("Error connecting to server.");
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const isLive    = countdown.started;
@@ -84,7 +128,7 @@ function MeetingCard({ event }) {
         isLive   ? 'border-emerald-200 ring-1 ring-emerald-100 hover:border-emerald-300' :
         isUrgent ? 'border-amber-200 ring-1 ring-amber-100 hover:border-amber-300' :
                    'border-gray-100 hover:border-blue-100'
-      }`}
+      } ${isDeleting ? 'opacity-50 grayscale pointer-events-none' : ''}`}
       onClick={handleCardClick}
     >
       {/* Pulse indicator top-right */}
@@ -111,16 +155,13 @@ function MeetingCard({ event }) {
             <div className="flex items-center gap-2 text-[11px] text-gray-500 font-semibold uppercase tracking-wider">
               <Clock size={11} />
               <span>{format(new Date(event.start_time), 'h:mm a')}</span>
-              {event.end_time && (
-                <span>→ {format(new Date(event.end_time), 'h:mm a')}</span>
-              )}
               <span>•</span>
               <span>{format(new Date(event.start_time), 'MMM d, yyyy')}</span>
             </div>
           </div>
 
           {/* ── Countdown badge ── */}
-          <div className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold border ${
+          <div className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-black border shadow-sm ${
             isLive
               ? 'bg-emerald-500 text-white border-emerald-500 animate-pulse'
               : isUrgent
@@ -128,32 +169,94 @@ function MeetingCard({ event }) {
               : 'bg-blue-50 text-blue-700 border-blue-200'
           }`}>
             {isLive ? (
-              <><Zap size={11} /> Live</>
+              <><Zap size={12} className="fill-white" /> LIVE</>
             ) : (
-              <><Clock size={11} /> {countdown.label}</>
+              <><Clock size={12} /> {countdown.label}</>
             )}
           </div>
         </div>
 
-        {/* ── Description ── */}
-        {event.description && (
+        {/* ── Summary Details ── */}
+        {!showDetails && event.description && (
           <div className="flex items-start gap-2 text-xs text-gray-600 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
             <AlignLeft size={13} className="text-gray-400 mt-0.5 shrink-0" />
             <p className="line-clamp-2 leading-relaxed italic">{event.description}</p>
           </div>
         )}
 
-        {/* ── Footer: reminder + guests + join btn ── */}
+        {/* ── Full Details Expansion ── */}
+        {showDetails && (
+          <div className="space-y-4 py-2 animate-in fade-in slide-in-from-top-2 duration-200">
+            {/* Time Range */}
+            <div className="flex flex-col gap-1 px-1">
+              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                <Calendar size={10} /> Full Schedule
+              </div>
+              <div className="text-xs text-gray-700 font-medium bg-gray-50 p-2 rounded-lg border border-gray-100">
+                {format(new Date(event.start_time), 'EEEE, MMMM d')} • {format(new Date(event.start_time), 'h:mm a')}
+                {event.end_time && ` to ${format(new Date(event.end_time), 'h:mm a')}`}
+              </div>
+            </div>
+
+            {/* Meeting Link */}
+            {meetingUrl && (
+              <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-3">
+                <div className="text-[10px] font-bold text-blue-500 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
+                  <Zap size={10} /> Meeting Link Ready
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 text-[11px] text-blue-700 font-medium truncate bg-white px-2 py-1.5 rounded border border-blue-100">
+                    {meetingUrl}
+                  </div>
+                  <button
+                    onClick={handleCopyLink}
+                    className="p-1.5 bg-white border border-blue-200 rounded-lg text-blue-600 hover:bg-blue-50 transition-colors shadow-sm"
+                    title="Copy Link"
+                  >
+                    {copied ? <Zap size={14} className="fill-blue-600" /> : <Link size={14} />}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Description */}
+            {event.description && (
+              <div className="space-y-1">
+                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">Description</div>
+                <div className="text-xs text-gray-600 bg-gray-50 p-3 rounded-xl border border-gray-100 leading-relaxed italic">
+                  {event.description}
+                </div>
+              </div>
+            )}
+
+            {/* Guest Emails */}
+            {event.guest_emails?.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">Participants</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {event.guest_emails.map((email, idx) => (
+                    <span key={idx} className="text-[10px] text-gray-600 bg-white px-2.5 py-1 rounded-full border border-gray-200 shadow-sm flex items-center gap-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                      {email}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Footer: reminder + guests + join/cancel buttons ── */}
         <div className="flex items-center justify-between gap-3 pt-2 border-t border-gray-50">
           <div className="flex items-center gap-2 flex-wrap">
             {/* Reminder badge */}
             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
               <Bell size={11} />
-              {event.reminder_offset_minutes ?? 5}m reminder
+              {event.reminder_offset_minutes === 60 ? '1 hour' : `${event.reminder_offset_minutes ?? 5} mins`} before
             </span>
 
             {/* Guest count */}
-            {event.guest_emails?.length > 0 && (
+            {event.guest_emails?.length > 0 && !showDetails && (
               <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-full">
                 <Users size={11} />
                 {event.guest_emails.length + 1} people
@@ -161,31 +264,30 @@ function MeetingCard({ event }) {
             )}
           </div>
 
-          {/* Join button */}
-          {event.room_id && (
+          <div className="flex items-center gap-2">
+            {/* Cancel Button */}
             <button
-              onClick={handleJoin}
-              className={`px-4 py-1.5 rounded-lg text-[11px] font-bold shadow-sm transition-colors ${
-                isLive || isUrgent
-                  ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
-                  : 'bg-blue-600 hover:bg-blue-700 text-white'
-              }`}
+              onClick={handleCancel}
+              className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-red-500 hover:bg-red-50 transition-colors"
             >
-              {isLive ? '▶ Join Now' : 'Join'}
+              Cancel
             </button>
-          )}
-        </div>
 
-        {/* Guest email pills */}
-        {event.guest_emails?.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {event.guest_emails.map((email, idx) => (
-              <span key={idx} className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200">
-                {email}
-              </span>
-            ))}
+            {/* Join button */}
+            {event.room_id && (
+              <button
+                onClick={handleJoin}
+                className={`px-4 py-1.5 rounded-lg text-[11px] font-bold shadow-sm transition-all hover:scale-105 active:scale-95 ${
+                  isLive || isUrgent
+                    ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                }`}
+              >
+                {isLive ? '▶ Join Now' : 'Join'}
+              </button>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -341,20 +443,22 @@ export default function UpcomingMeetings() {
   return (
     <div className="mt-12 space-y-4">
       {/* Header row */}
-      <div className="flex items-center justify-between px-1">
+      <div className="flex items-center justify-between mb-2 px-1">
         <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
           <Clock size={13} /> Upcoming Meetings
         </h3>
-        <button onClick={() => navigate('/calendar')}
-          className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1">
-          View Calendar <ChevronRight size={13} />
+        <button 
+          onClick={() => navigate('/calendar')}
+          className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1 bg-blue-50 px-3 py-1.5 rounded-full transition-all shadow-sm"
+        >
+          View Full Calendar <ChevronRight size={14} />
         </button>
       </div>
 
       {/* Cards */}
       <div className="grid gap-4">
         {events.map(event => (
-          <MeetingCard key={event.id} event={event} />
+          <MeetingCard key={event.id} event={event} onRefresh={triggerRefresh} />
         ))}
       </div>
     </div>

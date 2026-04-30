@@ -173,12 +173,11 @@ async def get_events(
 
 @router.post("/events", response_model=CreateEventResponse)
 async def create_event(event: CalendarEventCreate):
-    # Use client-provided id if it is a valid UUID, otherwise generate one.
-    # This keeps localStorage and DB ids in sync so the home-page Upcoming
-    # Meetings panel can find the event without re-POSTing it.
-    event_id = normalize_uuid_or_none(event.id) or str(uuid.uuid4())
-    
+    import traceback
     try:
+        # Use client-provided id if it is a valid UUID, otherwise generate one.
+        event_id = normalize_uuid_or_none(event.id) or str(uuid.uuid4())
+        
         user_id = get_or_create_user(
             user_id=event.user_id,
             name=event.user_name or "Calendar User",
@@ -231,49 +230,47 @@ async def create_event(event: CalendarEventCreate):
             )
         )
         conn.commit()
+        release_db_connection(conn)
+
+        # trigger_calendar_reminder_check() removed as it is handled by the background worker
+
+        if category in ["meetings", "meeting"]:
+            db_user = get_or_create_user(user_id=user_id)
+            final_host_email = (db_user or {}).get("email") or host_email
+            
+            notif_emails = []
+            if final_host_email:
+                notif_emails.append(final_host_email)
+            if event.guest_emails:
+                for em in event.guest_emails:
+                    normalized_em = (em or "").strip().lower()
+                    if normalized_em and normalized_em not in notif_emails:
+                        notif_emails.append(normalized_em)
+            
+            if notif_emails:
+                event_dict = {
+                    "title": event.title,
+                    "description": event.description,
+                    "category": category,
+                    "start_time": event.start_time,
+                    "end_time": event.end_time,
+                    "room_id": room_id,
+                    "user_name": event.user_name or (db_user or {}).get("name") or "Calendar User",
+                    "user_email": ",".join(notif_emails),
+                    "reminder_offset_minutes": event.reminder_offset_minutes
+                }
+                try:
+                    send_meeting_scheduled_email(event_dict)
+                except Exception as e:
+                    print(f"Failed to send scheduled meeting email: {e}")
+
+        return {"id": event_id, "message": "Event created successfully"}
     except Exception as e:
+        print(f"ERROR in create_event: {e}")
+        traceback.print_exc()
         if isinstance(e, HTTPException):
             raise e
-        raise HTTPException(status_code=500, detail=f"Failed to create event: {str(e)}")
-    finally:
-        if "conn" in locals() and conn:
-            release_db_connection(conn)
-
-    trigger_calendar_reminder_check()
-
-    if category in ["meetings", "meeting"]:
-        # Ensure we have the latest host email even if it wasn't in the request
-        db_user = get_or_create_user(user_id=user_id)
-        final_host_email = (db_user or {}).get("email") or host_email
-        
-        # Build the full list for the notification
-        notif_emails = []
-        if final_host_email:
-            notif_emails.append(final_host_email)
-        if event.guest_emails:
-            for em in event.guest_emails:
-                normalized_em = (em or "").strip().lower()
-                if normalized_em and normalized_em not in notif_emails:
-                    notif_emails.append(normalized_em)
-        
-        if notif_emails:
-            event_dict = {
-                "title": event.title,
-                "description": event.description,
-                "category": category,
-                "start_time": event.start_time,
-                "end_time": event.end_time,
-                "room_id": room_id,
-                "user_name": event.user_name or (db_user or {}).get("name") or "Calendar User",
-                "user_email": ",".join(notif_emails),
-                "reminder_offset_minutes": event.reminder_offset_minutes
-            }
-            try:
-                send_meeting_scheduled_email(event_dict)
-            except Exception as e:
-                print(f"Failed to send scheduled meeting email: {e}")
-
-    return {"id": event_id, "message": "Event created successfully"}
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 @router.delete("/events/{id}")
 async def delete_event(id: str):
@@ -373,7 +370,7 @@ async def update_event(id: str, event: CalendarEvent):
     finally:
         release_db_connection(conn)
 
-    trigger_calendar_reminder_check()
+    # trigger_calendar_reminder_check() removed
 
     if recipient_emails_str and category in ["meetings", "meeting"]:
         event_dict = {
