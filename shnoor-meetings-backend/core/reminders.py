@@ -369,18 +369,36 @@ def _send_email_via_resend(event: dict, subject: str, plain_text: str, html_body
 def _dispatch_email(event: dict, subject: str, heading: str, intro_line: str):
     """Build HTML email and send via SMTP or Resend. Raises if neither configured."""
     plain_text, html_body = _build_html_email(event, heading=heading, intro_line=intro_line)
+    
+    settings = _get_smtp_settings()
+    raw = (event.get("user_email") or "").strip()
+    recipients = [e.strip() for e in raw.split(",") if e.strip()]
+    
+    logger.info("Attempting to dispatch email: subject='%s', recipients=%s", subject, recipients)
 
     if _smtp_is_configured():
-        _send_email_via_smtp(event, subject, plain_text, html_body)
-        return
+        try:
+            _send_email_via_smtp(event, subject, plain_text, html_body)
+            logger.info("Email successfully sent via SMTP to %s", recipients)
+            return
+        except Exception as smtp_err:
+            logger.error("SMTP delivery failed: %s", smtp_err, exc_info=True)
+            if not _resend_is_configured():
+                raise
+
     if _resend_is_configured():
-        _send_email_via_resend(event, subject, plain_text, html_body)
-        return
+        try:
+            _send_email_via_resend(event, subject, plain_text, html_body)
+            logger.info("Email successfully sent via Resend to %s", recipients)
+            return
+        except Exception as resend_err:
+            logger.error("Resend delivery failed: %s", resend_err, exc_info=True)
+            raise
 
     raise RuntimeError(
-        "No email provider configured. "
-        f"Missing SMTP: {', '.join(_get_missing_smtp_keys()) or 'none'}; "
-        f"Missing Resend: {', '.join(_get_missing_resend_keys()) or 'none'}."
+        "No email provider configured or all providers failed. "
+        f"Missing SMTP keys: {', '.join(_get_missing_smtp_keys()) or 'none'}; "
+        f"Missing Resend keys: {', '.join(_get_missing_resend_keys()) or 'none'}."
     )
 
 
