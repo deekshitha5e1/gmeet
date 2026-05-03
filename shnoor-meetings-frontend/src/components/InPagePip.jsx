@@ -7,6 +7,7 @@ import { Mic, MicOff, Video, VideoOff, PhoneOff, Maximize2, GripHorizontal } fro
  */
 export default function InPagePip({
   localStream,
+  cameraStream,
   isVideoEnabled,
   isAudioEnabled,
   isSharingScreen = false,
@@ -26,32 +27,25 @@ export default function InPagePip({
   const [isDragging, setIsDragging] = useState(false);
   const dragStartPos = useRef({ x: 0, y: 0 });
   const videoRef = useRef(null);
+  const cameraRef = useRef(null);
 
   const shouldShowVideo = isVideoEnabled || isSharingScreen;
 
-  // Bind stream to video element and handle play
+  // Bind screen/local stream
   useEffect(() => {
-    let isMounted = true;
     if (videoRef.current && localStream && shouldShowVideo) {
-      const element = videoRef.current;
-      element.srcObject = localStream;
-      
-      const playVideo = async () => {
-        try {
-          if (element.paused) {
-            await element.play();
-          }
-        } catch (error) {
-          if (error.name !== 'AbortError') {
-            console.warn('PiP Video play failed:', error);
-          }
-        }
-      };
-      
-      playVideo();
+      videoRef.current.srcObject = localStream;
+      videoRef.current.play().catch(() => {});
     }
-    return () => { isMounted = false; };
   }, [localStream, shouldShowVideo]);
+
+  // Bind camera stream for overlay
+  useEffect(() => {
+    if (cameraRef.current && cameraStream && isSharingScreen && isVideoEnabled) {
+      cameraRef.current.srcObject = cameraStream;
+      cameraRef.current.play().catch(() => {});
+    }
+  }, [cameraStream, isSharingScreen, isVideoEnabled]);
 
   // Dragging logic - Only enable if NOT in a full-window portal
   const handleMouseDown = (e) => {
@@ -121,14 +115,28 @@ export default function InPagePip({
       {/* Video Content */}
       <div className="relative w-full h-full bg-black">
         {shouldShowVideo && localStream ? (
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className={`w-full h-full ${isSharingScreen ? 'object-contain' : 'object-cover mirror'}`}
-            style={{ pointerEvents: 'none' }} // Disable right-click/controls
-          />
+          <div className="w-full h-full relative">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className={`w-full h-full ${isSharingScreen ? 'object-contain' : 'object-cover mirror'}`}
+              style={{ pointerEvents: 'none' }}
+            />
+            {isSharingScreen && isVideoEnabled && cameraStream && (
+              <div className="absolute bottom-4 right-4 w-28 h-20 rounded-xl overflow-hidden border-2 border-white/20 shadow-2xl z-10 animate-in fade-in zoom-in duration-300">
+                <video
+                  ref={cameraRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover mirror"
+                  style={{ pointerEvents: 'none' }}
+                />
+              </div>
+            )}
+          </div>
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gray-900">
             <div className="w-20 h-20 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center">

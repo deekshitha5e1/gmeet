@@ -43,7 +43,8 @@ const MeetingRoom = () => {
     isHost,
     mediaError,
     localClientId,
-    getPeerConnection
+    getPeerConnection,
+    cameraStream
   } = useWebRTC(roomId);
 
   // ── Admission guard ──────────────────────────────────────────────────────────
@@ -264,6 +265,7 @@ const MeetingRoom = () => {
         <PipPopup pipWindow={pipWindow}>
           <InPagePip
             localStream={localStream}
+            cameraStream={cameraStream}
             isVideoEnabled={isVideoEnabled}
             isAudioEnabled={isAudioEnabled}
             isSharingScreen={isSharingScreen}
@@ -279,6 +281,7 @@ const MeetingRoom = () => {
       {(pipMode === PIP_MODES.FALLBACK || pipMode === PIP_MODES.MINIMIZED) && (
         <InPagePip
           localStream={localStream}
+          cameraStream={cameraStream}
           isVideoEnabled={isVideoEnabled}
           isAudioEnabled={isAudioEnabled}
           isSharingScreen={isSharingScreen}

@@ -56,6 +56,7 @@ export function useWebRTC(roomId, options = {}) {
   } = options;
 
   const [localStream, setLocalStream] = useState(null);
+  const [cameraStream, setCameraStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({});
   const [messages, setMessages] = useState([]);
   const [isSharingScreen, setIsSharingScreen] = useState(false);
@@ -561,6 +562,7 @@ export function useWebRTC(roomId, options = {}) {
 
           if (isMounted) {
             setLocalStream(stream);
+            setCameraStream(stream);
             setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
             setIsVideoEnabled(videoTrack ? videoTrack.enabled : false);
           }
@@ -697,12 +699,12 @@ export function useWebRTC(roomId, options = {}) {
         }
 
         // Create a new MediaStream so React detects the change
-        setLocalStream((prev) => {
-          const next = new MediaStream();
-          prev?.getAudioTracks().forEach(t => next.addTrack(t));
-          next.addTrack(newTrack);
-          return next;
-        });
+        const next = new MediaStream();
+        localStream?.getAudioTracks().forEach(t => next.addTrack(t));
+        next.addTrack(newTrack);
+        
+        setLocalStream(next);
+        setCameraStream(next);
 
         setIsVideoEnabled(true);
         setParticipantsMetadata((prev) => ({
@@ -771,6 +773,7 @@ export function useWebRTC(roomId, options = {}) {
     });
 
     setLocalStream(originalStream.current);
+    setCameraStream(originalStream.current);
     setIsSharingScreen(false);
     setParticipantsMetadata((prev) => ({
       ...prev,
@@ -896,6 +899,7 @@ export function useWebRTC(roomId, options = {}) {
 
   return {
     localStream,
+    cameraStream,
     remoteStreams,
     messages,
     participantsMetadata,

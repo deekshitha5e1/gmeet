@@ -277,6 +277,7 @@ def get_or_create_user(user_id=None, firebase_uid=None, name=None, email=None, p
         if user_id:
             cursor.execute(f"SELECT * FROM users WHERE id = {p}", (str(user_id),))
             user = cursor.fetchone()
+
         # Check by Firebase UID if not found
 
         if not user and firebase_uid:
