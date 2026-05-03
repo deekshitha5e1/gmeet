@@ -323,24 +323,40 @@ def _send_email_via_smtp(event: dict, subject: str, plain_text: str, html_body: 
     msg.attach(MIMEText(plain_text, "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    smtp_cls = smtplib.SMTP_SSL if settings["use_ssl"] else smtplib.SMTP
-    # Force IPv4 resolution to avoid 'Network is unreachable' issues with IPv6 on some cloud providers
-    try:
-        resolved_host = socket.gethostbyname(settings["host"])
-    except Exception:
-        resolved_host = settings["host"]
+    errors = []
+    # Try multiple ports (465, 587) to bypass provider blocks and timeouts
+    ports_to_try = [settings["port"]]
+    if 465 not in ports_to_try: ports_to_try.append(465)
+    if 587 not in ports_to_try: ports_to_try.append(587)
+    
+    for port in ports_to_try:
+        try:
+            logger.info("Attempting SMTP connection to %s:%d (timeout=%ds)", settings["host"], port, settings["timeout_seconds"])
+            
+            # Re-resolve host for IPv4 safety
+            try:
+                resolved_host = socket.gethostbyname(settings["host"])
+            except Exception:
+                resolved_host = settings["host"]
 
-    with smtp_cls(
-        host=resolved_host,
-        port=settings["port"],
-        timeout=settings["timeout_seconds"]
-    ) as server:
-        server.ehlo()
-        if settings["use_tls"] and not settings["use_ssl"]:
-            server.starttls()
-            server.ehlo()
-        server.login(settings["username"], settings["password"])
-        server.send_message(msg)
+            smtp_cls = smtplib.SMTP_SSL if port == 465 else smtplib.SMTP
+            
+            with smtp_cls(host=resolved_host, port=port, timeout=settings["timeout_seconds"]) as server:
+                server.ehlo()
+                if port == 587:
+                    server.starttls()
+                    server.ehlo()
+                
+                server.login(settings["username"], settings["password"])
+                server.send_message(msg)
+                logger.info("Email sent successfully via port %d", port)
+                return
+        except Exception as e:
+            logger.warning("SMTP attempt failed on port %d: %s", port, e)
+            errors.append(f"Port {port}: {str(e)}")
+            continue
+
+    raise RuntimeError(f"All SMTP attempts failed: {'; '.join(errors)}")
 
 
 def _send_email_via_resend(event: dict, subject: str, plain_text: str, html_body: str):
