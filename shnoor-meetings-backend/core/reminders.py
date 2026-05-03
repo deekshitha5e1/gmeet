@@ -321,8 +321,7 @@ def _send_email_via_smtp(event: dict, subject: str, plain_text: str, html_body: 
     with smtp_cls(
         host=settings["host"],
         port=settings["port"],
-        timeout=settings["timeout_seconds"],
-        source_address=("0.0.0.0", 0)
+        timeout=settings["timeout_seconds"]
     ) as server:
         server.ehlo()
         if settings["use_tls"] and not settings["use_ssl"]:
