@@ -1,6 +1,7 @@
 import logging
 import os
 import smtplib
+import socket
 import threading
 import urllib.request
 import urllib.error
@@ -318,8 +319,14 @@ def _send_email_via_smtp(event: dict, subject: str, plain_text: str, html_body: 
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
     smtp_cls = smtplib.SMTP_SSL if settings["use_ssl"] else smtplib.SMTP
+    # Force IPv4 resolution to avoid 'Network is unreachable' issues with IPv6 on some cloud providers
+    try:
+        resolved_host = socket.gethostbyname(settings["host"])
+    except Exception:
+        resolved_host = settings["host"]
+
     with smtp_cls(
-        host=settings["host"],
+        host=resolved_host,
         port=settings["port"],
         timeout=settings["timeout_seconds"]
     ) as server:
