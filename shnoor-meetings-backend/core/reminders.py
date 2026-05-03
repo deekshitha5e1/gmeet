@@ -27,16 +27,21 @@ FRONTEND_URL = (os.getenv("FRONTEND_URL") or "https://gmeet-wt19.vercel.app").rs
 # ─── SMTP / Resend Config ────────────────────────────────────────────────────
 
 def _get_smtp_settings():
+    host = (os.getenv("SMTP_HOST") or "smtp.gmail.com").strip()
+    port = int((os.getenv("SMTP_PORT") or "465").strip() or "465")
+    use_ssl = (os.getenv("SMTP_USE_SSL") or ("True" if port == 465 else "False")).strip().lower() == "true"
+    use_tls = (os.getenv("SMTP_USE_TLS") or ("False" if port == 465 else "True")).strip().lower() == "true"
+
     return {
-        "host": (os.getenv("SMTP_HOST") or "").strip(),
-        "port": int((os.getenv("SMTP_PORT") or "587").strip() or "587"),
+        "host": host,
+        "port": port,
         "username": (os.getenv("SMTP_USERNAME") or "").strip(),
         "password": (os.getenv("SMTP_PASSWORD") or "").strip(),
         "from_email": (os.getenv("SMTP_FROM_EMAIL") or "").strip(),
         "from_name": (os.getenv("SMTP_FROM_NAME") or "Shnoor Meetings").strip(),
-        "use_tls": (os.getenv("SMTP_USE_TLS") or "true").strip().lower() != "false",
-        "use_ssl": (os.getenv("SMTP_USE_SSL") or "false").strip().lower() == "true",
-        "timeout_seconds": int((os.getenv("SMTP_TIMEOUT_SECONDS") or "30").strip() or "30"),
+        "use_tls": use_tls,
+        "use_ssl": use_ssl,
+        "timeout_seconds": int((os.getenv("SMTP_TIMEOUT_SECONDS") or "45").strip() or "45"),
     }
 
 
