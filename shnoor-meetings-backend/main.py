@@ -29,8 +29,8 @@ _ALWAYS_ALLOWED_ORIGINS = [
 def get_allowed_origins():
     """Return the full list of CORS-allowed origins.
 
-    Merges hardcoded origins with whatever is set in FRONTEND_ORIGINS so that
-    the Vercel frontend always works even if the Render env-var is missing.
+    Merges hardcoded origins with whatever is set in FRONTEND_ORIGINS and
+    dynamically adds any Vercel deployment URLs if they match the project.
     """
     configured_origins = os.getenv("FRONTEND_ORIGINS", "")
     parsed_origins = [
@@ -39,8 +39,11 @@ def get_allowed_origins():
         if origin.strip()
     ]
 
-    # Union of configured + always-allowed (preserve order, deduplicate)
+    # Union of configured + always-allowed
     merged = list(dict.fromkeys(_ALWAYS_ALLOWED_ORIGINS + parsed_origins))
+    
+    # Optional: Allow any .vercel.app origin from this project
+    # This helps with preview deployments
     return merged
 
 # Initialize Database
@@ -55,6 +58,7 @@ app = FastAPI(
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
+    allow_origin_regex=r"https://gmeet-wt19.*\.vercel\.app|http://localhost:.*",
     allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
