@@ -106,7 +106,7 @@ def _format_dt(value) -> str:
             
         return ist_dt.strftime("%B %d, %Y at %I:%M %p IST")
     except Exception as e:
-        print(f"Error formatting date {value}: {e}")
+        logger.warning("Error formatting date %r: %s", value, e)
         return str(value)
 
 
@@ -374,6 +374,11 @@ def _send_email_via_resend(event: dict, subject: str, plain_text: str, html_body
         "html": html_body,
     }
 
+    logger.info(
+        "Resend API request — from=%r, to=%r, subject=%r",
+        payload["from"], recipients, subject,
+    )
+
     req = urllib.request.Request(
         "https://api.resend.com/emails",
         data=json.dumps(payload).encode("utf-8"),
@@ -385,35 +390,56 @@ def _send_email_via_resend(event: dict, subject: str, plain_text: str, html_body
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as response:
+            body_resp = response.read().decode("utf-8", errors="ignore")
+            logger.info(
+                "Resend API response — status=%d, body=%s", response.status, body_resp
+            )
             if response.status >= 400:
-                body_resp = response.read().decode("utf-8", errors="ignore")
                 raise RuntimeError(f"Resend API failed with status {response.status}: {body_resp}")
     except urllib.error.HTTPError as exc:
         body_resp = exc.read().decode("utf-8", errors="ignore")
+        logger.error("Resend API HTTP error — status=%d, body=%s", exc.code, body_resp)
         raise RuntimeError(f"Resend API error {exc.code}: {body_resp}") from exc
 
 
 def _dispatch_email(event: dict, subject: str, heading: str, intro_line: str):
     """Build HTML email and send via SMTP or Resend. Raises if neither configured."""
     plain_text, html_body = _build_html_email(event, heading=heading, intro_line=intro_line)
-    
-    settings = _get_smtp_settings()
+
     raw = (event.get("user_email") or "").strip()
     recipients = [e.strip() for e in raw.split(",") if e.strip()]
-    
-    logger.info("Attempting to dispatch email: subject='%s', recipients=%s", subject, recipients)
 
-    if _smtp_is_configured():
+    smtp_configured = _smtp_is_configured()
+    resend_configured = _resend_is_configured()
+
+    logger.info(
+        "Dispatching email — subject=%r, recipients=%s, smtp_configured=%s, resend_configured=%s",
+        subject, recipients, smtp_configured, resend_configured,
+    )
+
+    if not smtp_configured and not resend_configured:
+        missing_smtp = ", ".join(_get_missing_smtp_keys()) or "none"
+        missing_resend = ", ".join(_get_missing_resend_keys()) or "none"
+        raise RuntimeError(
+            "No email provider configured. "
+            f"Missing SMTP keys: {missing_smtp}; "
+            f"Missing Resend keys: {missing_resend}."
+        )
+
+    if smtp_configured:
+        logger.info("Attempting email delivery via SMTP")
         try:
             _send_email_via_smtp(event, subject, plain_text, html_body)
             logger.info("Email successfully sent via SMTP to %s", recipients)
             return
         except Exception as smtp_err:
             logger.error("SMTP delivery failed: %s", smtp_err, exc_info=True)
-            if not _resend_is_configured():
+            if not resend_configured:
                 raise
+            logger.info("Falling back to Resend after SMTP failure")
 
-    if _resend_is_configured():
+    if resend_configured:
+        logger.info("Attempting email delivery via Resend to %s", recipients)
         try:
             _send_email_via_resend(event, subject, plain_text, html_body)
             logger.info("Email successfully sent via Resend to %s", recipients)
@@ -423,7 +449,7 @@ def _dispatch_email(event: dict, subject: str, heading: str, intro_line: str):
             raise
 
     raise RuntimeError(
-        "No email provider configured or all providers failed. "
+        "All configured email providers failed. "
         f"Missing SMTP keys: {', '.join(_get_missing_smtp_keys()) or 'none'}; "
         f"Missing Resend keys: {', '.join(_get_missing_resend_keys()) or 'none'}."
     )

@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 import threading
@@ -15,6 +16,8 @@ from core.database import (
     get_db_type,
 )
 from core.reminders import process_pending_calendar_reminders, send_calendar_reminder_email, send_meeting_scheduled_email
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/calendar",
@@ -174,6 +177,10 @@ async def get_events(
 @router.post("/events", response_model=CreateEventResponse)
 async def create_event(event: CalendarEventCreate):
     import traceback
+    logger.info(
+        "create_event called: title=%r, user_email=%r, guest_emails=%r, category=%r",
+        event.title, event.user_email, event.guest_emails, event.category,
+    )
     try:
         # Use client-provided id if it is a valid UUID, otherwise generate one.
         event_id = normalize_uuid_or_none(event.id) or str(uuid.uuid4())
@@ -259,15 +266,24 @@ async def create_event(event: CalendarEventCreate):
                     "user_email": ",".join(notif_emails),
                     "reminder_offset_minutes": event.reminder_offset_minutes
                 }
+                logger.info(
+                    "Triggering send_meeting_scheduled_email for event_id=%s, recipients=%s, event_data=%r",
+                    event_id, notif_emails, event_dict,
+                )
                 try:
                     send_meeting_scheduled_email(event_dict)
+                    logger.info(
+                        "send_meeting_scheduled_email completed successfully for event_id=%s", event_id
+                    )
                 except Exception as e:
-                    print(f"Failed to send scheduled meeting email: {e}")
+                    logger.error(
+                        "Failed to send scheduled meeting email for event_id=%s: %s",
+                        event_id, e, exc_info=True,
+                    )
 
         return {"id": event_id, "message": "Event created successfully"}
     except Exception as e:
-        print(f"ERROR in create_event: {e}")
-        traceback.print_exc()
+        logger.error("ERROR in create_event: %s", e, exc_info=True)
         if isinstance(e, HTTPException):
             raise e
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
@@ -384,9 +400,17 @@ async def update_event(id: str, event: CalendarEvent):
             "user_email": recipient_emails_str,
             "reminder_offset_minutes": event.reminder_offset_minutes
         }
+        logger.info(
+            "Triggering send_meeting_scheduled_email for updated event id=%s, recipients=%s",
+            id, recipient_emails_str,
+        )
         try:
             send_meeting_scheduled_email(event_dict)
+            logger.info("send_meeting_scheduled_email completed successfully for updated event id=%s", id)
         except Exception as e:
-            print(f"Failed to send updated meeting email: {e}")
+            logger.error(
+                "Failed to send updated meeting email for event id=%s: %s",
+                id, e, exc_info=True,
+            )
 
     return {"message": "Event updated successfully"}
