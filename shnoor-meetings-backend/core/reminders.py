@@ -403,16 +403,6 @@ def _dispatch_email(event: dict, subject: str, heading: str, intro_line: str):
     
     logger.info("Attempting to dispatch email: subject='%s', recipients=%s", subject, recipients)
 
-    if _smtp_is_configured():
-        try:
-            _send_email_via_smtp(event, subject, plain_text, html_body)
-            logger.info("Email successfully sent via SMTP to %s", recipients)
-            return
-        except Exception as smtp_err:
-            logger.error("SMTP delivery failed: %s", smtp_err, exc_info=True)
-            if not _resend_is_configured():
-                raise
-
     if _resend_is_configured():
         try:
             _send_email_via_resend(event, subject, plain_text, html_body)
@@ -420,6 +410,16 @@ def _dispatch_email(event: dict, subject: str, heading: str, intro_line: str):
             return
         except Exception as resend_err:
             logger.error("Resend delivery failed: %s", resend_err, exc_info=True)
+            if not _smtp_is_configured():
+                raise
+
+    if _smtp_is_configured():
+        try:
+            _send_email_via_smtp(event, subject, plain_text, html_body)
+            logger.info("Email successfully sent via SMTP to %s", recipients)
+            return
+        except Exception as smtp_err:
+            logger.error("SMTP delivery failed: %s", smtp_err, exc_info=True)
             raise
 
     raise RuntimeError(
