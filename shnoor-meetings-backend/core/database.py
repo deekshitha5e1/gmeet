@@ -203,6 +203,8 @@ def _ensure_tables():
                 id {uuid_type} PRIMARY KEY,
                 user_id {uuid_type} REFERENCES users(id),
                 recipient_email TEXT,
+                host_email TEXT,
+                guest_emails TEXT,
                 title TEXT NOT NULL,
                 description TEXT,
                 start_time TIMESTAMPTZ NOT NULL,
@@ -210,7 +212,9 @@ def _ensure_tables():
                 category TEXT DEFAULT 'meetings',
                 room_id {uuid_type},
                 reminder_offset_minutes INTEGER DEFAULT 5,
+                reminder_time TIMESTAMPTZ,
                 reminder_sent_at TIMESTAMPTZ,
+                notification_sent INTEGER DEFAULT 0,
                 created_at TIMESTAMPTZ DEFAULT {now_func}
             )
         """)
@@ -238,23 +242,43 @@ def _ensure_tables():
             )
         """)
 
-        # Column patches
+        # Column patches — run for both new and existing databases
+        pg_new_cols = [
+            ("recipient_email", "TEXT"),
+            ("end_time", "TIMESTAMPTZ"),
+            ("description", "TEXT"),
+            ("host_email", "TEXT"),
+            ("guest_emails", "TEXT"),
+            ("reminder_time", "TIMESTAMPTZ"),
+            ("notification_sent", "INTEGER DEFAULT 0"),
+        ]
+        sqlite_new_cols = [
+            ("user_id", "TEXT"),
+            ("recipient_email", "TEXT"),
+            ("end_time", "TEXT"),
+            ("description", "TEXT"),
+            ("reminder_offset_minutes", "INTEGER"),
+            ("reminder_sent_at", "TEXT"),
+            ("host_email", "TEXT"),
+            ("guest_emails", "TEXT"),
+            ("reminder_time", "TEXT"),
+            ("notification_sent", "INTEGER"),
+        ]
         if _db_type == "postgres":
-            for col in [("recipient_email", "TEXT"), ("end_time", "TIMESTAMPTZ"), ("description", "TEXT")]:
+            for col_name, col_type in pg_new_cols:
                 cursor.execute(f"""
-                    DO $$ BEGIN 
-                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='calendar_events' AND column_name='{col[0]}') THEN
-                            ALTER TABLE calendar_events ADD COLUMN {col[0]} {col[1]};
+                    DO $$ BEGIN
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='calendar_events' AND column_name='{col_name}') THEN
+                            ALTER TABLE calendar_events ADD COLUMN {col_name} {col_type};
                         END IF;
                     END $$;
                 """)
         else:
-            # SQLite doesn't have DO blocks, we check manually
-            for col_name in ["user_id", "recipient_email", "end_time", "description", "reminder_offset_minutes", "reminder_sent_at"]:
-                cursor.execute(f"PRAGMA table_info(calendar_events)")
-                cols = [row[1] for row in cursor.fetchall()]
-                if col_name not in cols:
-                    col_type = "INTEGER" if col_name == "reminder_offset_minutes" else "TEXT"
+            # SQLite: check PRAGMA then alter
+            for col_name, col_type in sqlite_new_cols:
+                cursor.execute("PRAGMA table_info(calendar_events)")
+                existing_cols = [row[1] for row in cursor.fetchall()]
+                if col_name not in existing_cols:
                     cursor.execute(f"ALTER TABLE calendar_events ADD COLUMN {col_name} {col_type}")
 
         conn.commit()

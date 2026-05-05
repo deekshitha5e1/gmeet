@@ -1,3 +1,4 @@
+import json
 import os
 import uuid
 import threading
@@ -14,7 +15,7 @@ from core.database import (
     release_db_connection,
     get_db_type,
 )
-from core.reminders import process_pending_calendar_reminders, send_calendar_reminder_email, send_meeting_scheduled_email
+from core.reminders import process_pending_calendar_reminders, send_calendar_reminder_email
 
 router = APIRouter(
     prefix="/api/calendar",
@@ -175,9 +176,8 @@ async def get_events(
 async def create_event(event: CalendarEventCreate):
     import traceback
     try:
-        # Use client-provided id if it is a valid UUID, otherwise generate one.
         event_id = normalize_uuid_or_none(event.id) or str(uuid.uuid4())
-        
+
         user_id = get_or_create_user(
             user_id=event.user_id,
             name=event.user_name or "Calendar User",
@@ -191,16 +191,24 @@ async def create_event(event: CalendarEventCreate):
         if room_id:
             ensure_meeting_record(room_id, host_user_id=user_id, title=event.title)
 
-        all_emails = []
+        # Host email = event creator
         host_email = (event.user_email or "").strip().lower()
-        if host_email:
-            all_emails.append(host_email)
-        if event.guest_emails:
-            for em in event.guest_emails:
-                normalized_em = (em or "").strip().lower()
-                if normalized_em and normalized_em not in all_emails:
-                    all_emails.append(normalized_em)
+
+        # Guest emails — validated and deduplicated
+        guest_list = []
+        for em in (event.guest_emails or []):
+            normalized = (em or "").strip().lower()
+            if normalized and normalized != host_email and normalized not in guest_list:
+                guest_list.append(normalized)
+        guest_emails_json = json.dumps(guest_list)
+
+        # Backward-compat: keep recipient_email as comma-joined all emails
+        all_emails = ([host_email] if host_email else []) + guest_list
         recipient_emails_str = ",".join(all_emails) if all_emails else None
+
+        # Compute reminder_time = start_time - reminder_offset_minutes
+        reminder_mins = event.reminder_offset_minutes or DEFAULT_REMINDER_OFFSET_MINUTES
+        reminder_time = event.start_time - timedelta(minutes=reminder_mins)
 
         conn = get_db_connection()
         if not conn:
@@ -209,60 +217,37 @@ async def create_event(event: CalendarEventCreate):
         db_type = get_db_type()
         cursor = get_dict_cursor(conn)
         p = "%s" if db_type == "postgres" else "?"
-        
-        placeholders = ", ".join([p] * 10)
+
+        placeholders = ", ".join([p] * 13)
         cursor.execute(
             f"""
-            INSERT INTO calendar_events (id, user_id, recipient_email, title, description, start_time, end_time, category, room_id, reminder_offset_minutes)
+            INSERT INTO calendar_events
+              (id, user_id, recipient_email, host_email, guest_emails,
+               title, description, start_time, end_time, category,
+               room_id, reminder_offset_minutes, reminder_time)
             VALUES ({placeholders})
             """,
             (
                 event_id,
                 user_id,
                 recipient_emails_str,
+                host_email,
+                guest_emails_json,
                 event.title,
                 event.description,
                 event.start_time,
                 event.end_time,
                 category,
                 room_id,
-                event.reminder_offset_minutes or DEFAULT_REMINDER_OFFSET_MINUTES,
+                reminder_mins,
+                reminder_time,
             )
         )
         conn.commit()
         release_db_connection(conn)
 
-        # trigger_calendar_reminder_check() removed as it is handled by the background worker
-
-        if category in ["meetings", "meeting"]:
-            db_user = get_or_create_user(user_id=user_id)
-            final_host_email = (db_user or {}).get("email") or host_email
-            
-            notif_emails = []
-            if final_host_email:
-                notif_emails.append(final_host_email)
-            if event.guest_emails:
-                for em in event.guest_emails:
-                    normalized_em = (em or "").strip().lower()
-                    if normalized_em and normalized_em not in notif_emails:
-                        notif_emails.append(normalized_em)
-            
-            if notif_emails:
-                event_dict = {
-                    "title": event.title,
-                    "description": event.description,
-                    "category": category,
-                    "start_time": event.start_time,
-                    "end_time": event.end_time,
-                    "room_id": room_id,
-                    "user_name": event.user_name or (db_user or {}).get("name") or "Calendar User",
-                    "user_email": ",".join(notif_emails),
-                    "reminder_offset_minutes": event.reminder_offset_minutes
-                }
-                try:
-                    send_meeting_scheduled_email(event_dict)
-                except Exception as e:
-                    print(f"Failed to send scheduled meeting email: {e}")
+        # Emails are NOT sent immediately — the background scheduler handles delivery
+        # when reminder_time is reached.
 
         return {"id": event_id, "message": "Event created successfully"}
     except Exception as e:
@@ -303,7 +288,7 @@ async def update_event(id: str, event: CalendarEvent):
         db_type = get_db_type()
         cursor = get_dict_cursor(conn)
         p = "%s" if db_type == "postgres" else "?"
-        
+
         event_user_id = get_or_create_user(
             user_id=event.user_id,
             name=event.user_name or "Calendar User",
@@ -317,22 +302,27 @@ async def update_event(id: str, event: CalendarEvent):
         if room_id:
             ensure_meeting_record(room_id, host_user_id=event_user_id, title=event.title)
 
-        all_emails = []
         host_email = (event.user_email or "").strip().lower()
-        if host_email:
-            all_emails.append(host_email)
-        if event.guest_emails:
-            for em in event.guest_emails:
-                normalized_em = (em or "").strip().lower()
-                if normalized_em and normalized_em not in all_emails:
-                    all_emails.append(normalized_em)
+        guest_list = []
+        for em in (event.guest_emails or []):
+            normalized = (em or "").strip().lower()
+            if normalized and normalized != host_email and normalized not in guest_list:
+                guest_list.append(normalized)
+        guest_emails_json = json.dumps(guest_list)
+
+        all_emails = ([host_email] if host_email else []) + guest_list
         recipient_emails_str = ",".join(all_emails) if all_emails else None
+
+        reminder_mins = event.reminder_offset_minutes or DEFAULT_REMINDER_OFFSET_MINUTES
+        reminder_time = event.start_time - timedelta(minutes=reminder_mins)
 
         cursor.execute(
             f"""
             UPDATE calendar_events
             SET user_id = {p},
                 recipient_email = {p},
+                host_email = {p},
+                guest_emails = {p},
                 title = {p},
                 description = {p},
                 start_time = {p},
@@ -340,19 +330,24 @@ async def update_event(id: str, event: CalendarEvent):
                 category = {p},
                 room_id = {p},
                 reminder_offset_minutes = {p},
-                reminder_sent_at = NULL
+                reminder_time = {p},
+                reminder_sent_at = NULL,
+                notification_sent = 0
             WHERE id = {p}
             """,
             (
                 event_user_id,
                 recipient_emails_str,
+                host_email,
+                guest_emails_json,
                 event.title,
                 event.description,
                 event.start_time,
                 event.end_time,
                 category,
                 room_id,
-                event.reminder_offset_minutes or DEFAULT_REMINDER_OFFSET_MINUTES,
+                reminder_mins,
+                reminder_time,
                 id,
             )
         )
@@ -370,23 +365,6 @@ async def update_event(id: str, event: CalendarEvent):
     finally:
         release_db_connection(conn)
 
-    # trigger_calendar_reminder_check() removed
-
-    if recipient_emails_str and category in ["meetings", "meeting"]:
-        event_dict = {
-            "title": event.title,
-            "description": event.description,
-            "category": category,
-            "start_time": event.start_time,
-            "end_time": event.end_time,
-            "room_id": room_id,
-            "user_name": event.user_name or "Calendar User",
-            "user_email": recipient_emails_str,
-            "reminder_offset_minutes": event.reminder_offset_minutes
-        }
-        try:
-            send_meeting_scheduled_email(event_dict)
-        except Exception as e:
-            print(f"Failed to send updated meeting email: {e}")
+    # Emails NOT sent immediately — scheduler handles delivery at reminder_time.
 
     return {"message": "Event updated successfully"}
