@@ -380,6 +380,8 @@ def _send_email_via_resend(event: dict, subject: str, plain_text: str, html_body
         headers={
             "Authorization": f"Bearer {settings['api_key']}",
             "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "ShnoorMeetings/1.0 (Integration; Python)",
         },
         method="POST",
     )
