@@ -410,8 +410,7 @@ def _dispatch_email(event: dict, subject: str, heading: str, intro_line: str):
             return
         except Exception as resend_err:
             logger.error("Resend delivery failed: %s", resend_err, exc_info=True)
-            if not _smtp_is_configured():
-                raise
+            raise
 
     if _smtp_is_configured():
         try:
