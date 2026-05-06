@@ -1,4 +1,5 @@
 import logging
+import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from core.connection_manager import manager
 from core.database import (
@@ -21,6 +22,67 @@ async def sync_waiting_room(meeting_id: str):
         "type": "waiting-room-sync",
         "requests": requests,
     })
+
+def is_invited_to_meeting(meeting_id: str, email: str) -> bool:
+    """Check if the given email is a host, guest, or participant for the meeting."""
+    if not meeting_id or not email:
+        return False
+    
+    email = email.strip().lower()
+    conn = get_db_connection()
+    if not conn:
+        return False
+        
+    try:
+        cursor = get_dict_cursor(conn)
+        db_type = get_db_type()
+        p = "%s" if db_type == "postgres" else "?"
+        
+        # Check both the meeting table (for room_id) and the calendar table
+        cursor.execute(
+            f"""
+            SELECT host_email, guest_emails, participant_emails 
+            FROM calendar_events 
+            WHERE room_id = {p} OR id = {p}
+            """,
+            (meeting_id, meeting_id)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return False
+            
+        # Check Host
+        if row.get("host_email") and row["host_email"].strip().lower() == email:
+            return True
+            
+        # Check Guests
+        guests = row.get("guest_emails")
+        if guests:
+            try:
+                guest_list = json.loads(guests)
+                if any(g.strip().lower() == email for g in guest_list):
+                    return True
+            except:
+                # Fallback for old comma-separated format
+                if any(g.strip().lower() == email for g in guests.split(",")):
+                    return True
+                    
+        # Check Participants
+        participants = row.get("participant_emails")
+        if participants:
+            try:
+                participant_list = json.loads(participants)
+                if any(p.strip().lower() == email for p in participant_list):
+                    return True
+            except:
+                pass
+                
+        return False
+    except Exception as e:
+        logger.error(f"Error checking invitation for {email} in {meeting_id}: {e}")
+        return False
+    finally:
+        release_db_connection(conn)
 
 @router.websocket("/ws/{meeting_id}/{role_or_id}")
 async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: str, client_id: str = None):
@@ -97,6 +159,12 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
                 
                 # Security check for participants
                 if role == "participant":
+                    # Auto-admit if they are in the guest/participant list
+                    if email and is_invited_to_meeting(meeting_id, email):
+                        logger.info(f"Auto-admitting invited participant: {email}")
+                        manager.add_accepted_participant(meeting_id, cid)
+                        client_admitted = True
+
                     if not client_admitted and not manager.is_participant_accepted(meeting_id, cid):
                         logger.warning(f"join-room BLOCKED: {cid} not admitted to {meeting_id}")
                         await websocket.send_json({

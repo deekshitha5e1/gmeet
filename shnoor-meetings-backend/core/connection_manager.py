@@ -42,6 +42,22 @@ class ConnectionManager:
             self.accepted_participants[meeting_id].add(client_id)
             logger.info(f"Host {client_id} connected to meeting {meeting_id}")
         else:
+            # Prevent duplicate connections for the same client_id in the same room
+            # If this client already has an active websocket, close it before adding the new one
+            for ws, existing_cid in list(self.user_records.get(meeting_id, {}).items()):
+                if existing_cid == client_id and ws != websocket:
+                    logger.info(f"Closing stale connection for client {client_id}")
+                    try:
+                        # We don't await here as it's a background cleanup
+                        import asyncio
+                        asyncio.create_task(ws.close(code=1000, reason="New connection established"))
+                    except: pass
+                    if ws in self.rooms[meeting_id]["participants"]:
+                        self.rooms[meeting_id]["participants"].remove(ws)
+                    if meeting_id in self.connection_metadata and ws in self.connection_metadata[meeting_id]:
+                        del self.connection_metadata[meeting_id][ws]
+                    del self.user_records[meeting_id][ws]
+
             if websocket not in self.rooms[meeting_id]["participants"]:
                 self.rooms[meeting_id]["participants"].append(websocket)
             logger.info(f"Participant {client_id} connected to meeting {meeting_id}")
@@ -100,14 +116,20 @@ class ConnectionManager:
 
             if websocket in self.user_records.get(meeting_id, {}):
                 del self.user_records[meeting_id][websocket]
+            
+            # CRITICAL: Also clean up metadata to prevent ghost participants
+            if meeting_id in self.connection_metadata and websocket in self.connection_metadata[meeting_id]:
+                del self.connection_metadata[meeting_id][websocket]
 
-            # Clean up empty rooms
+            # Clean up empty rooms, but PERSIST accepted_participants to allow reconnects/refreshes
             if not room["host"] and not room["participants"]:
+                # Keep metadata and accepted participants for a while or until server restart
+                # This allows users to refresh without being blocked by "not-admitted"
                 del self.rooms[meeting_id]
-                self.user_records.pop(meeting_id, None)
-                self.waiting_requests.pop(meeting_id, None)
-                self.accepted_participants.pop(meeting_id, None)
-                logger.info(f"Meeting {meeting_id} cleared from memory")
+                # self.user_records.pop(meeting_id, None) # Keep this or let it clear
+                # self.waiting_requests.pop(meeting_id, None)
+                # self.accepted_participants.pop(meeting_id, None) # DO NOT POP THIS
+                logger.info(f"Room structures for {meeting_id} cleared from memory, but admission state preserved.")
 
     async def send_to_host(self, meeting_id: str, message: dict):
         """Broadcasts a message to ALL connections marked as host for this meeting."""
