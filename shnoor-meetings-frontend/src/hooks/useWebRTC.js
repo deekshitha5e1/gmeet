@@ -64,6 +64,7 @@ export function useWebRTC(roomId, options = {}) {
   const [isHandRaised, setIsHandRaised] = useState(false);
   const [mediaError, setMediaError] = useState(null);
   const [activeJoinRequests, setActiveJoinRequests] = useState([]);
+  const [isWSConnected, setIsWSConnected] = useState(false);
   const initialMediaState = useRef(getPreJoinMediaState(roomId));
   const [isAudioEnabled, setIsAudioEnabled] = useState(initialMediaState.current.audioEnabled);
   const [isVideoEnabled, setIsVideoEnabled] = useState(initialMediaState.current.videoEnabled);
@@ -509,8 +510,10 @@ export function useWebRTC(roomId, options = {}) {
     isHost.current = nextIsHost;
     setIsHostState(nextIsHost);
 
-    if (!wasHost && nextIsHost && ws.current?.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify({ type: 'host_join' }));
+    // If I am a host, ensure the backend knows it.
+    // This is critical for receiving join requests while in the Lobby (autoJoin=false).
+    if (nextIsHost && ws.current?.readyState === WebSocket.OPEN) {
+      sendSignalingMessage({ type: 'host_join' });
       syncParticipantState();
     }
 
@@ -586,6 +589,7 @@ export function useWebRTC(roomId, options = {}) {
 
         ws.current.onopen = () => {
           console.log(`[WebSocket] Connected: meetingId=${roomId}, role=${role}, clientId=${clientId.current}`);
+          setIsWSConnected(true);
           if (ws.current?.readyState !== WebSocket.OPEN) return;
 
           pendingMessagesRef.current.forEach((message) => {
@@ -615,6 +619,7 @@ export function useWebRTC(roomId, options = {}) {
 
       if (ws.current) {
         ws.current.close();
+        setIsWSConnected(false);
       }
 
       Object.values(peerConnections.current).forEach((pc) => pc.close());
@@ -923,5 +928,7 @@ export function useWebRTC(roomId, options = {}) {
     localClientId: clientId.current,
     getPeerConnection,
     sendSignalingMessage,
+    cameraStream,
+    isWSConnected,
   };
 }

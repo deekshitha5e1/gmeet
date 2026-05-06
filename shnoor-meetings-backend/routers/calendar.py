@@ -15,7 +15,11 @@ from core.database import (
     release_db_connection,
     get_db_type,
 )
-from core.reminders import process_pending_calendar_reminders, send_calendar_reminder_email
+from core.reminders import (
+    process_pending_calendar_reminders,
+    send_calendar_reminder_email,
+    send_invitation_emails
+)
 
 router = APIRouter(
     prefix="/api/calendar",
@@ -268,6 +272,30 @@ async def create_event(event: CalendarEventCreate):
 
         # Emails are NOT sent immediately — the background scheduler handles delivery
         # when reminder_time is reached.
+        # UPDATE: Immediate invitation emails are now sent for all involved parties.
+        try:
+            event_dict = {
+                "id": event_id,
+                "title": event.title,
+                "description": event.description,
+                "category": category,
+                "start_time": event.start_time,
+                "end_time": event.end_time,
+                "room_id": room_id,
+                "reminder_offset_minutes": reminder_mins,
+                "host_email": host_email,
+                "guest_emails": guest_emails_json,
+                "participant_emails": participant_emails_json,
+                "location": event.location
+            }
+            threading.Thread(
+                target=send_invitation_emails,
+                args=(event_dict,),
+                name=f"invitation-email-{event_id}",
+                daemon=True
+            ).start()
+        except Exception as e:
+            print(f"Non-fatal: Failed to trigger invitation emails: {e}")
 
         return {"id": event_id, "message": "Event created successfully"}
     except Exception as e:

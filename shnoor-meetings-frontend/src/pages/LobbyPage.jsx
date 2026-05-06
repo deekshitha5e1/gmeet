@@ -55,6 +55,7 @@ export default function LobbyPage() {
     denyParticipant,
     sendSignalingMessage,
     localClientId,
+    isWSConnected,
   } = useWebRTC(roomId, { acquireMedia: false, autoJoin: false, initialRole: resolvedRole });
 
   // ── Toast helper ─────────────────────────────────────────────────────────────
@@ -293,9 +294,9 @@ export default function LobbyPage() {
           <div className="w-full space-y-4 pt-4">
             {isHostView ? (
               <div className="space-y-4 w-full">
-                <button onClick={joinMeeting} disabled={!participantName.trim()}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3.5 rounded-full shadow-lg shadow-blue-100 transition-all transform active:scale-95 text-md flex items-center justify-center gap-2">
-                  <LogIn size={20} /> Join Meeting
+                <button onClick={joinMeeting} disabled={!participantName.trim() || !isWSConnected}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3.5 rounded-full shadow-lg shadow-blue-100 transition-all transform active:scale-95 text-md flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                  <LogIn size={20} /> {isWSConnected ? 'Join Meeting' : 'Connecting...'}
                 </button>
 
                 <button onClick={() => setShowInviteModal(true)}
@@ -336,9 +337,9 @@ export default function LobbyPage() {
               </div>
             ) : (
               <>
-                <button onClick={handleAskToJoin} disabled={isWaiting || !participantName.trim()}
-                  className={`w-full font-semibold py-3.5 rounded-full shadow-lg transition-all transform active:scale-95 text-md ${isWaiting ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-100'}`}>
-                  {isWaiting ? 'Asking to join…' : 'Ask to join'}
+                <button onClick={handleAskToJoin} disabled={isWaiting || !participantName.trim() || !isWSConnected}
+                  className={`w-full font-semibold py-3.5 rounded-full shadow-lg transition-all transform active:scale-95 text-md ${isWaiting ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-100'} disabled:opacity-50 disabled:cursor-not-allowed`}>
+                  {isWaiting ? 'Asking to join…' : (isWSConnected ? 'Ask to join' : 'Connecting...')}
                 </button>
 
                 {isWaiting && (

@@ -165,7 +165,7 @@ def _build_email_html(
     # Guest tags
     guest_html = ""
     if guest_emails:
-        tags = "".join(
+        g_tags = "".join(
             f'<span style="display:inline-block;background:#EFF6FF;color:#1D4ED8;border:1px solid #BFDBFE;'
             f'border-radius:999px;padding:2px 12px;margin:2px 4px 2px 0;font-size:13px;">{g}</span>'
             for g in guest_emails
@@ -173,7 +173,7 @@ def _build_email_html(
         guest_html = f"""
         <tr>
           <td style="padding:6px 0;color:#6B7280;font-size:13px;width:120px;vertical-align:top;">Guests</td>
-          <td style="padding:6px 0;font-size:13px;color:#111827;">{tags}</td>
+          <td style="padding:6px 0;font-size:13px;color:#111827;">{g_tags}</td>
         </tr>"""
 
     # Participant tags
@@ -281,16 +281,19 @@ def _build_email_html(
 
 # ─── Send Helpers ─────────────────────────────────────────────────────────────
 
-def _send_via_smtp(to_email: str, subject: str, plain_text: str, html_body: str, reply_to: str = ""):
+def _send_via_smtp(to_emails: list, subject: str, plain_text: str, html_body: str, reply_to: str = "", individual_recipient: str = ""):
     settings = _get_smtp_settings()
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = f"{settings['from_name']} <{settings['from_email']}>"
-    msg["To"] = to_email
+    msg["To"] = ", ".join(to_emails)
     if reply_to:
         msg["Reply-To"] = reply_to
     msg.attach(MIMEText(plain_text, "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+    # Determine who actually receives this physical email
+    recipients = [individual_recipient] if individual_recipient else to_emails
 
     ports_to_try = [settings["port"]]
     if 465 not in ports_to_try:
@@ -312,23 +315,31 @@ def _send_via_smtp(to_email: str, subject: str, plain_text: str, html_body: str,
                     server.starttls()
                     server.ehlo()
                 server.login(settings["username"], settings["password"])
-                server.send_message(msg)
-                logger.info("Email sent via SMTP port %d to %s", port, to_email)
+                # Use sendmail to control exactly who gets it while keeping the "To" header intact
+                server.sendmail(settings["from_email"], recipients, msg.as_string())
+                logger.info("Email sent via SMTP port %d to %s", port, recipients)
                 return
         except Exception as e:
             errors.append(f"Port {port}: {e}")
     raise RuntimeError(f"All SMTP attempts failed: {'; '.join(errors)}")
 
 
-def _send_via_resend(to_email: str, subject: str, plain_text: str, html_body: str, reply_to: str = ""):
+def _send_via_resend(to_emails: list, subject: str, plain_text: str, html_body: str, reply_to: str = "", individual_recipient: str = ""):
     settings = _get_resend_settings()
+    # For Resend, if individual_recipient is provided, we only send to them in the API call
+    # but they will see everyone in the "To" list (if Resend supports multiple in 'to' and we only send 1)
+    # Actually, Resend delivers to everyone in the 'to' list. 
+    # To send individual emails with shared headers, we'd need to use 'to' for the recipient and 'cc' or just a custom header.
+    # But for now, let's keep it simple for Resend.
     payload = {
         "from": f"{settings['from_name']} <{settings['from_email']}>",
-        "to": [to_email],
+        "to": [individual_recipient] if individual_recipient else to_emails,
         "subject": subject,
         "text": plain_text,
         "html": html_body,
     }
+    # Note: Resend doesn't easily support "To header is X but deliver to Y" in a single call.
+    # So for Resend we'll just send to everyone at once or one by one.
     if reply_to:
         payload["reply_to"] = [reply_to]
 
@@ -353,18 +364,28 @@ def _send_via_resend(to_email: str, subject: str, plain_text: str, html_body: st
         raise RuntimeError(f"Resend API error {exc.code}: {body}") from exc
 
 
-def _dispatch_single_email(to_email: str, subject: str, plain_text: str, html_body: str, reply_to: str = ""):
-    """Send one email to one recipient via Resend or SMTP."""
-    logger.info("Dispatching email to=%s subject='%s' reply_to=%s", to_email, subject, reply_to)
+def _dispatch_group_email(to_emails: list, subject: str, plain_text: str, html_body: str, reply_to: str = "", individual_recipient: str = ""):
+    """Send email to multiple recipients (or one in a group thread) via Resend or SMTP."""
+    if not to_emails and not individual_recipient:
+        return
+    
+    target = individual_recipient if individual_recipient else f"{len(to_emails)} recipients"
+    logger.info("Dispatching email to=%s subject='%s'", target, subject)
+    
     if _resend_is_configured():
-        _send_via_resend(to_email, subject, plain_text, html_body, reply_to)
+        _send_via_resend(to_emails, subject, plain_text, html_body, reply_to, individual_recipient)
         return
     if _smtp_is_configured():
-        _send_via_smtp(to_email, subject, plain_text, html_body, reply_to)
+        _send_via_smtp(to_emails, subject, plain_text, html_body, reply_to, individual_recipient)
         return
     raise RuntimeError(
         f"No email provider configured. Missing SMTP: {_get_missing_smtp_keys()}; Missing Resend: {_get_missing_resend_keys()}"
     )
+
+
+def _dispatch_single_email(to_email: str, subject: str, plain_text: str, html_body: str, reply_to: str = ""):
+    """Backward compat shim."""
+    _dispatch_group_email([to_email], subject, plain_text, html_body, reply_to)
 
 
 # ─── Public Email Senders ─────────────────────────────────────────────────────
@@ -453,6 +474,134 @@ def send_calendar_reminder_email(event: dict):
             send_guest_reminder_email(event, p)
         except Exception as exc:
             logger.error("Failed participant reminder to %s: %s", p, exc)
+
+
+def send_host_invitation_email(event: dict):
+    """Send immediate invitation/confirmation email to the HOST."""
+    host_email = (event.get("host_email") or "").strip()
+    if not host_email:
+        return
+
+    title = event.get("title") or "Untitled Meeting"
+    subject = f"📅 Meeting Scheduled: {title}"
+    heading = "📅 Meeting Scheduled"
+    intro_line = f"You have successfully scheduled the meeting <strong>{title}</strong>. Here are the details:"
+
+    guest_emails = _parse_email_list(event.get("guest_emails"))
+    participant_emails = _parse_email_list(event.get("participant_emails"))
+    meet_link = _get_meet_link(event)
+    reminder_mins = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
+
+    plain_text, html_body = _build_email_html(
+        title=title,
+        heading=heading,
+        intro_line=intro_line,
+        start_time=event.get("start_time"),
+        end_time=event.get("end_time"),
+        host_email=host_email,
+        guest_emails=guest_emails,
+        participant_emails=participant_emails,
+        description=event.get("description") or "",
+        meet_link=meet_link,
+        reminder_mins=reminder_mins,
+        category=event.get("category") or "meetings",
+    )
+    _dispatch_single_email(host_email, subject, plain_text, html_body, reply_to="")
+
+
+def send_guest_invitation_email(event: dict, guest_email: str):
+    """Send immediate invitation email to one GUEST or PARTICIPANT."""
+    host_email = (event.get("host_email") or "").strip()
+    guest_email = guest_email.strip()
+    if not guest_email:
+        return
+
+    title = event.get("title") or "Untitled Meeting"
+    subject = f"📩 Invitation: {title}"
+    heading = "📩 New Meeting Invitation"
+    host_display = host_email or "An organizer"
+    intro_line = f"<strong>{host_display}</strong> has invited you to a meeting."
+
+    guest_emails = _parse_email_list(event.get("guest_emails"))
+    participant_emails = _parse_email_list(event.get("participant_emails"))
+    meet_link = _get_meet_link(event)
+    reminder_mins = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
+
+    plain_text, html_body = _build_email_html(
+        title=title,
+        heading=heading,
+        intro_line=intro_line,
+        start_time=event.get("start_time"),
+        end_time=event.get("end_time"),
+        host_email=host_email,
+        guest_emails=guest_emails,
+        participant_emails=participant_emails,
+        description=event.get("description") or "",
+        meet_link=meet_link,
+        reminder_mins=reminder_mins,
+        category=event.get("category") or "meetings",
+    )
+    _dispatch_single_email(guest_email, subject, plain_text, html_body, reply_to=host_email)
+
+
+def send_invitation_emails(event: dict):
+    """Send a SINGLE group invitation email to host, guests, and participants."""
+    logger.info("Sending group invitation email for event %s", event.get("id"))
+    
+    host_email = (event.get("host_email") or "").strip()
+    guest_emails = _parse_email_list(event.get("guest_emails"))
+    participant_emails = _parse_email_list(event.get("participant_emails"))
+    
+    # Collect all unique recipients
+    all_recipients = []
+    if host_email:
+        all_recipients.append(host_email)
+    for email in guest_emails + participant_emails:
+        if email not in all_recipients:
+            all_recipients.append(email)
+            
+    if not all_recipients:
+        logger.warning("No recipients found for invitation email.")
+        return
+
+    title = event.get("title") or "Untitled Meeting"
+    subject = f"📅 Invitation: {title}"
+    heading = "📩 New Meeting Invitation"
+    
+    host_display = host_email or "An organizer"
+    intro_line = f"<strong>{host_display}</strong> has invited you to a meeting."
+    if len(all_recipients) > 1:
+        intro_line = f"You are invited to a meeting scheduled by <strong>{host_display}</strong>."
+
+    meet_link = _get_meet_link(event)
+    reminder_mins = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
+
+    plain_text, html_body = _build_email_html(
+        title=title,
+        heading=heading,
+        intro_line=intro_line,
+        start_time=event.get("start_time"),
+        end_time=event.get("end_time"),
+        host_email=host_email,
+        guest_emails=guest_emails,
+        participant_emails=participant_emails,
+        description=event.get("description") or "",
+        meet_link=meet_link,
+        reminder_mins=reminder_mins,
+        category=event.get("category") or "meetings",
+    )
+    
+    try:
+        # We send an INDIVIDUAL physical email to every person in the list
+        # but the "To" header in each email lists everyone.
+        # This is more reliable for bypassing spam filters than one bulk email.
+        for recipient in all_recipients:
+            try:
+                _dispatch_group_email(all_recipients, subject, plain_text, html_body, reply_to=host_email, individual_recipient=recipient)
+            except Exception as individual_exc:
+                logger.error("Failed to send invitation email to %s: %s", recipient, individual_exc)
+    except Exception as exc:
+        logger.error("Failed to send group invitation emails: %s", exc)
 
 
 def send_meeting_scheduled_email(event: dict):
