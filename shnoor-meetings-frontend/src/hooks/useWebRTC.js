@@ -197,14 +197,15 @@ export function useWebRTC(roomId, options = {}) {
       firebase_uid: user?.firebaseUid || null,
       name: sessionStorage.getItem(`meeting_name_${roomId}`) || user?.name || 'Participant',
       email: user?.email || sessionStorage.getItem(`meeting_email_${roomId}`) || null,
-      joined_at: new Date().toISOString(),
       picture: user?.picture || null,
       role: isHost.current ? 'host' : 'participant',
       admitted: !isHost.current && sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true',
       isAudioEnabled,
       isVideoEnabled,
       joined_at: new Date().toISOString(),
-    });
+    };
+
+    sendSignalingMessage(payload);
 
     // If host: also send host_join so backend marks this in-meeting WS as role=host.
     // This ensures ask_to_join messages from participants are routed here correctly.
