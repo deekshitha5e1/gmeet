@@ -115,9 +115,11 @@ export default function LandingPage() {
     }
   };
 
-  const handleCreateMeetingLater = async () => {
+  const handleCreateMeetingLater = () => {
     setShowDropdown(false);
-    setShowEventModal(true);
+    const newRoomId = crypto.randomUUID();
+    setLaterRoomId(newRoomId);
+    setShowInviteModal(true);
   };
 
   const handleScheduleCalendar = () => {
