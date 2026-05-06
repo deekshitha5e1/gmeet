@@ -174,15 +174,21 @@ class ConnectionManager:
                     pass
 
     async def send_to_client(self, meeting_id: str, client_id: str, message: dict):
+        sent = False
         if meeting_id in self.user_records:
             for ws, stored_id in self.user_records[meeting_id].items():
                 if stored_id == client_id:
                     try:
                         await ws.send_json(message)
-                        return True
-                    except Exception:
-                        pass
-        return False
+                        sent = True
+                    except Exception as e:
+                        logger.error(f"Error sending to client {client_id}: {e}")
+        
+        if sent:
+            logger.info(f"Message {message.get('type')} sent to client {client_id}")
+        else:
+            logger.warning(f"Could not find active connection for client {client_id} in meeting {meeting_id}")
+        return sent
 
     def add_waiting_request(self, meeting_id: str, client_id: str, name: str, email: str = None):
         if meeting_id not in self.waiting_requests:
