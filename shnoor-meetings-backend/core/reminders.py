@@ -375,13 +375,17 @@ def _dispatch_group_email(to_emails: list, subject: str, plain_text: str, html_b
     logger.info("Dispatching email to=%s subject='%s'", target, subject)
     
     if _resend_is_configured():
-        _send_via_resend(to_emails, subject, plain_text, html_body, reply_to, individual_recipient)
-        return
+        try:
+            _send_via_resend(to_emails, subject, plain_text, html_body, reply_to, individual_recipient)
+            return
+        except Exception as resend_err:
+            logger.warning(f"Resend failed: {resend_err}. Falling back to SMTP.")
+
     if _smtp_is_configured():
         _send_via_smtp(to_emails, subject, plain_text, html_body, reply_to, individual_recipient)
         return
     raise RuntimeError(
-        f"No email provider configured. Missing SMTP: {_get_missing_smtp_keys()}; Missing Resend: {_get_missing_resend_keys()}"
+        f"No email provider configured or all failed. Missing SMTP: {_get_missing_smtp_keys()}; Missing Resend: {_get_missing_resend_keys()}"
     )
 
 
@@ -716,8 +720,9 @@ def process_pending_calendar_reminders():
 
                 # Mark notification_sent = 1
                 now_col = "NOW()" if db_type == "postgres" else "CURRENT_TIMESTAMP"
+                p_mark = "%s" if db_type == "postgres" else "?"
                 cursor.execute(
-                    f"UPDATE calendar_events SET notification_sent = 1, reminder_sent_at = {now_col} WHERE id = {p}",
+                    f"UPDATE calendar_events SET notification_sent = 1, reminder_sent_at = {now_col} WHERE id = {p_mark}",
                     (event["id"],),
                 )
                 conn.commit()
