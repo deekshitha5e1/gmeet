@@ -20,10 +20,10 @@ const MeetingControls = React.memo(({
   isPipEnabled,
   joinRequestCount = 0,
 }) => {
-  const btnBase = "p-4 rounded-full transition-all flex items-center justify-center transform hover:scale-110 shadow-lg active:scale-95";
+  const btnBase = "p-4 rounded-full transition-all flex items-center justify-center transform hover:scale-110 shadow-lg active:scale-95 flex-shrink-0 snap-center";
 
   return (
-    <div className="flex items-center justify-center gap-3 py-4 px-4 max-w-full overflow-x-auto">
+    <div className="flex items-center justify-start md:justify-center gap-3 py-4 px-6 max-w-full overflow-x-auto overflow-y-hidden snap-x no-scrollbar">
       <button
         onClick={onToggleAudio}
         className={`${btnBase} ${isAudioOn ? 'bg-gray-800 text-white hover:bg-gray-700' : 'bg-red-500 text-white hover:bg-red-600'}`}

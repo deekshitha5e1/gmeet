@@ -8,6 +8,12 @@ export function normalizeEventCategory(category) {
   if (['reminder', 'reminders', 'remainder', 'remainders'].includes(normalized)) {
     return 'reminders';
   }
+  if (normalized === 'out_of_office') {
+    return 'out_of_office';
+  }
+  if (normalized === 'appointment') {
+    return 'appointment';
+  }
   return 'meetings';
 }
 

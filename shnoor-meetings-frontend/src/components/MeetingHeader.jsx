@@ -116,7 +116,7 @@ export default function MeetingHeader({ onOpenChatbot, toggleSidebar }) {
             <img src="/logo.jpg" alt="logo" className="w-full h-full" />
           </div>
 
-          <span className="text-lg md:text-xl font-medium text-gray-700">
+          <span className="text-base md:text-lg font-medium text-gray-700">
             Shnoor{" "}
             <span className="text-gray-500 hidden sm:inline">
               International LLC Meetings
@@ -126,11 +126,11 @@ export default function MeetingHeader({ onOpenChatbot, toggleSidebar }) {
       </div>
 
         <div className="flex items-center gap-1">
-          <div className="text-gray-500 mr-4 font-medium hidden lg:block">
+          <div className="text-gray-500 mr-4 font-medium hidden md:block">
             {currentTime}
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="hidden md:flex items-center gap-1">
             <button
               onClick={() => setIsHelpOpen(true)}
               className="p-2.5 hover:bg-gray-100 rounded-full text-gray-600 transition-colors"
@@ -145,32 +145,33 @@ export default function MeetingHeader({ onOpenChatbot, toggleSidebar }) {
             >
               <MessageSquare size={22} />
             </button>
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="p-2.5 hover:bg-gray-100 rounded-full text-gray-600 transition-colors"
-              title={t('settings')}
-            >
-              <Settings size={22} />
-            </button>
           </div>
+          
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            className="p-2.5 hover:bg-gray-100 rounded-full text-gray-600 transition-colors"
+            title={t('settings')}
+          >
+            <Settings size={22} />
+          </button>
 
-          <div className="flex items-center gap-2 ml-4">
+          <div className="flex items-center gap-1 ml-1 md:ml-4">
             <button
-              className="p-2.5 hover:bg-gray-100 rounded-full text-gray-600 transition-colors"
+              className="hidden md:block p-2.5 hover:bg-gray-100 rounded-full text-gray-600 transition-colors"
               onClick={() => navigate(location.pathname.startsWith('/calendar') ? '/' : '/calendar')}
               title={t('calendar')}
             >
               <Grid size={22} />
             </button>
-            <div className="relative ml-2">
+            <div className="relative ml-1">
               <button
-                className={`w-10 h-10 ${avatarColor} rounded-full flex items-center justify-center border-2 border-white shadow-sm cursor-pointer overflow-hidden`}
+                className={`w-9 h-9 md:w-10 md:h-10 ${avatarColor} rounded-full flex items-center justify-center border-2 border-white shadow-sm cursor-pointer overflow-hidden`}
                 onClick={() => setIsProfileOpen((prev) => !prev)}
               >
                 {user?.picture ? (
                   <img src={user.picture} alt={user.name || 'User'} className="w-full h-full object-cover" />
                 ) : (
-                  <span className="text-white font-bold text-lg uppercase">
+                  <span className="text-white font-bold text-base md:text-lg uppercase">
                     {(user?.name || user?.email || 'G')[0]}
                   </span>
                 )}
@@ -212,7 +213,7 @@ export default function MeetingHeader({ onOpenChatbot, toggleSidebar }) {
 
       {isHelpOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-xl shadow-2xl">
+          <div className="bg-white rounded-2xl p-6 w-[95vw] sm:max-w-xl shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-start mb-6">
               <div>
                 <h2 className="text-2xl font-semibold text-gray-800">{t('help')}</h2>
@@ -252,7 +253,7 @@ export default function MeetingHeader({ onOpenChatbot, toggleSidebar }) {
 
       {isSettingsOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl animate-in fade-in zoom-in duration-200 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl p-6 w-[95vw] sm:max-w-lg shadow-2xl animate-in fade-in zoom-in duration-200 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-start mb-6 border-b border-gray-100 pb-4">
               <div className="flex items-center gap-3">
                 <Settings className="text-blue-600" size={24} />

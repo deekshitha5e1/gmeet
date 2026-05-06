@@ -251,6 +251,9 @@ def _ensure_tables():
             ("guest_emails", "TEXT"),
             ("reminder_time", "TIMESTAMPTZ"),
             ("notification_sent", "INTEGER DEFAULT 0"),
+            ("location", "TEXT"),
+            ("guest_permissions", "TEXT"),
+            ("participant_emails", "TEXT"),
         ]
         sqlite_new_cols = [
             ("user_id", "TEXT"),
@@ -263,6 +266,9 @@ def _ensure_tables():
             ("guest_emails", "TEXT"),
             ("reminder_time", "TEXT"),
             ("notification_sent", "INTEGER"),
+            ("location", "TEXT"),
+            ("guest_permissions", "TEXT"),
+            ("participant_emails", "TEXT"),
         ]
         if _db_type == "postgres":
             for col_name, col_type in pg_new_cols:

@@ -63,7 +63,7 @@ const VideoGrid = React.memo(({
   }, [tiles.length]);
 
   return (
-    <div className="w-full h-full flex items-center justify-center p-4">
+    <div className="w-full h-full flex items-center justify-center p-4 overflow-y-auto">
       <div className={`grid gap-4 w-full ${gridClass} mx-auto items-center`}>
         {tiles.map((tile) => (
           <VideoPlayer

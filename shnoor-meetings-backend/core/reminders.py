@@ -103,17 +103,17 @@ def _get_meet_link(event: dict) -> str:
     return f"{frontend_url}/meeting/{room_id}?role=participant"
 
 
-def _parse_guest_emails(event: dict) -> list:
-    """Parse guest_emails field (JSON string or list) from event dict."""
-    raw = event.get("guest_emails")
+def _parse_email_list(raw) -> list:
+    """Parse a field (JSON string, list, or comma-sep) into a list of emails."""
     if not raw:
         return []
     if isinstance(raw, list):
         return [e.strip() for e in raw if e and e.strip()]
     try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, list):
-            return [e.strip() for e in parsed if e and e.strip()]
+        if isinstance(raw, str):
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [e.strip() for e in parsed if e and e.strip()]
     except Exception:
         pass
     # Fallback: comma-separated
@@ -130,15 +130,20 @@ def _build_email_html(
     end_time,
     host_email: str,
     guest_emails: list,
+    participant_emails: list,
     description: str,
     meet_link: str,
     reminder_mins: int,
+    category: str = "Meeting",
 ) -> tuple:
     """Returns (plain_text, html_string)."""
-    category = "Meeting"
     start_str = _format_dt(start_time)
     end_str = _format_dt(end_time) if end_time else None
     time_range = start_str + (f" → {end_str}" if end_str else "")
+
+    display_category = "Meeting"
+    if category.lower() in ["reminder", "reminders", "task"]:
+        display_category = "Task"
 
     # Plain text
     plain_parts = [heading, "", intro_line, "",
@@ -146,7 +151,9 @@ def _build_email_html(
     if host_email:
         plain_parts.append(f"👤 Organizer: {host_email}")
     if guest_emails:
-        plain_parts.append(f"👥 Participants: {', '.join(guest_emails)}")
+        plain_parts.append(f"👥 Guests: {', '.join(guest_emails)}")
+    if participant_emails:
+        plain_parts.append(f"👥 Participants: {', '.join(participant_emails)}")
     if description:
         plain_parts.append(f"📝 {description}")
     plain_parts.append(f"🔔 Reminder: {reminder_mins} min before")
@@ -165,8 +172,22 @@ def _build_email_html(
         )
         guest_html = f"""
         <tr>
-          <td style="padding:6px 0;color:#6B7280;font-size:13px;width:120px;vertical-align:top;">Participants</td>
+          <td style="padding:6px 0;color:#6B7280;font-size:13px;width:120px;vertical-align:top;">Guests</td>
           <td style="padding:6px 0;font-size:13px;color:#111827;">{tags}</td>
+        </tr>"""
+
+    # Participant tags
+    participant_html = ""
+    if participant_emails:
+        p_tags = "".join(
+            f'<span style="display:inline-block;background:#F0FDF4;color:#166534;border:1px solid #BBF7D0;'
+            f'border-radius:999px;padding:2px 12px;margin:2px 4px 2px 0;font-size:13px;">{p}</span>'
+            for p in participant_emails
+        )
+        participant_html = f"""
+        <tr>
+          <td style="padding:6px 0;color:#6B7280;font-size:13px;width:120px;vertical-align:top;">Participants</td>
+          <td style="padding:6px 0;font-size:13px;color:#111827;">{p_tags}</td>
         </tr>"""
 
     desc_html = ""
@@ -229,11 +250,12 @@ def _build_email_html(
                 <tr>
                   <td style="padding:6px 0;color:#6B7280;font-size:13px;">Category</td>
                   <td style="padding:6px 0;font-size:13px;color:#111827;">
-                    <span style="background:#ECFDF5;color:#059669;border-radius:999px;padding:2px 10px;font-weight:600;">{category}</span>
+                    <span style="background:#ECFDF5;color:#059669;border-radius:999px;padding:2px 10px;font-weight:600;">{display_category}</span>
                   </td>
                 </tr>
                 {host_html}
                 {guest_html}
+                {participant_html}
                 <tr>
                   <td style="padding:6px 0;color:#6B7280;font-size:13px;">Reminder</td>
                   <td style="padding:6px 0;font-size:13px;color:#D97706;font-weight:600;">🔔 {reminder_mins} minutes before</td>
@@ -359,7 +381,8 @@ def send_host_reminder_email(event: dict):
     heading = "⏰ Meeting Reminder"
     intro_line = f"Hi, your meeting <strong>{title}</strong> is starting soon. Here are the details:"
 
-    guest_emails = _parse_guest_emails(event)
+    guest_emails = _parse_email_list(event.get("guest_emails"))
+    participant_emails = _parse_email_list(event.get("participant_emails"))
     meet_link = _get_meet_link(event)
     reminder_mins = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
 
@@ -371,9 +394,11 @@ def send_host_reminder_email(event: dict):
         end_time=event.get("end_time"),
         host_email=host_email,
         guest_emails=guest_emails,
+        participant_emails=participant_emails,
         description=event.get("description") or "",
         meet_link=meet_link,
         reminder_mins=reminder_mins,
+        category=event.get("category") or "meetings",
     )
     _dispatch_single_email(host_email, subject, plain_text, html_body, reply_to="")
 
@@ -391,7 +416,8 @@ def send_guest_reminder_email(event: dict, guest_email: str):
     host_display = host_email or "Your organizer"
     intro_line = f"<strong>{host_display}</strong> invited you to a meeting that is starting soon."
 
-    guest_emails = _parse_guest_emails(event)
+    guest_emails = _parse_email_list(event.get("guest_emails"))
+    participant_emails = _parse_email_list(event.get("participant_emails"))
     meet_link = _get_meet_link(event)
     reminder_mins = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
 
@@ -403,9 +429,11 @@ def send_guest_reminder_email(event: dict, guest_email: str):
         end_time=event.get("end_time"),
         host_email=host_email,
         guest_emails=guest_emails,
+        participant_emails=participant_emails,
         description=event.get("description") or "",
         meet_link=meet_link,
         reminder_mins=reminder_mins,
+        category=event.get("category") or "meetings",
     )
     _dispatch_single_email(guest_email, subject, plain_text, html_body, reply_to=host_email)
 
@@ -413,13 +441,18 @@ def send_guest_reminder_email(event: dict, guest_email: str):
 # ─── Backward-compat shims (used by existing test endpoint) ──────────────────
 
 def send_calendar_reminder_email(event: dict):
-    """Legacy shim: send reminder to host + all guests."""
+    """Legacy shim: send reminder to host + all guests + all participants."""
     send_host_reminder_email(event)
-    for g in _parse_guest_emails(event):
+    for g in _parse_email_list(event.get("guest_emails")):
         try:
             send_guest_reminder_email(event, g)
         except Exception as exc:
             logger.error("Failed guest reminder to %s: %s", g, exc)
+    for p in _parse_email_list(event.get("participant_emails")):
+        try:
+            send_guest_reminder_email(event, p)
+        except Exception as exc:
+            logger.error("Failed participant reminder to %s: %s", p, exc)
 
 
 def send_meeting_scheduled_email(event: dict):
@@ -460,6 +493,7 @@ def process_pending_calendar_reminders():
                 calendar_events.reminder_offset_minutes,
                 calendar_events.host_email,
                 calendar_events.guest_emails,
+                calendar_events.participant_emails,
                 LOWER(TRIM(COALESCE(calendar_events.recipient_email, users.email, ''))) AS fallback_email,
                 users.name AS user_name
             FROM calendar_events
@@ -481,6 +515,7 @@ def process_pending_calendar_reminders():
                 calendar_events.reminder_offset_minutes,
                 calendar_events.host_email,
                 calendar_events.guest_emails,
+                calendar_events.participant_emails,
                 LOWER(TRIM(COALESCE(calendar_events.recipient_email, users.email, ''))) AS fallback_email,
                 users.name AS user_name
             FROM calendar_events
@@ -510,9 +545,12 @@ def process_pending_calendar_reminders():
             # Resolve guest_emails if missing
             if not event.get("guest_emails"):
                 fallback = event.get("fallback_email") or ""
-                parts = [e.strip() for e in fallback.split(",") if e.strip()]
                 guest_list = parts[1:] if len(parts) > 1 else []
                 event["guest_emails"] = json.dumps(guest_list)
+
+            # Resolve participant_emails if missing
+            if not event.get("participant_emails"):
+                event["participant_emails"] = "[]"
 
             try:
                 # Send to host
@@ -520,11 +558,18 @@ def process_pending_calendar_reminders():
                     send_host_reminder_email(event)
 
                 # Send to each guest
-                for g in _parse_guest_emails(event):
+                for g in _parse_email_list(event.get("guest_emails")):
                     try:
                         send_guest_reminder_email(event, g)
                     except Exception as guest_exc:
                         logger.error("Guest reminder failed for %s on event %s: %s", g, event["id"], guest_exc)
+
+                # Send to each participant
+                for p in _parse_email_list(event.get("participant_emails")):
+                    try:
+                        send_guest_reminder_email(event, p)
+                    except Exception as part_exc:
+                        logger.error("Participant reminder failed for %s on event %s: %s", p, event["id"], part_exc)
 
                 # Mark notification_sent = 1
                 now_col = "NOW()" if db_type == "postgres" else "CURRENT_TIMESTAMP"

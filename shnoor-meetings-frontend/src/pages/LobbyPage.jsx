@@ -94,7 +94,7 @@ export default function LobbyPage() {
       }
     };
     verify();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
 
   // ── Send host_join whenever role confirms as host ─────────────────────────────
@@ -134,7 +134,7 @@ export default function LobbyPage() {
     };
     startPreview();
     return () => { localStream?.getTracks().forEach(t => t.stop()); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -213,7 +213,7 @@ export default function LobbyPage() {
     <div className="flex flex-col h-screen bg-white font-sans overflow-hidden">
       <MeetingHeader />
 
-      <main className="flex-1 flex flex-col md:flex-row items-center justify-center p-6 md:p-12 gap-8 md:gap-16 max-w-7xl mx-auto w-full">
+      <main className="flex-1 flex flex-col lg:flex-row items-center justify-center p-4 sm:p-6 lg:p-12 gap-8 lg:gap-16 max-w-7xl mx-auto w-full overflow-y-auto">
         {/* Left: Video Preview */}
         <div className="flex-[1.4] w-full flex flex-col items-center">
           <div className="w-full max-w-2xl">
@@ -269,11 +269,11 @@ export default function LobbyPage() {
               )}
             </div>
 
-            <div className="flex flex-wrap items-center justify-center gap-2 mt-4 overflow-x-auto pb-2">
-              <PermissionPill icon={<Mic size={14}/>} label="Permission n..." onClick={() => showToast('Manage microphone in browser settings.')} />
-              <PermissionPill icon={<Monitor size={14}/>} label="Permission n..." onClick={() => showToast('Manage screenshare in browser settings.')} />
-              <PermissionPill icon={<Video size={14}/>} label="Permission n..." onClick={() => showToast('Manage camera in browser settings.')} />
-              <PermissionPill icon={<Sparkles size={14}/>} label="Permission n..." onClick={() => showToast('Effects are currently disabled.')} />
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-4 pb-2 px-2">
+              <PermissionPill icon={<Mic size={14} />} label="Permission n..." onClick={() => showToast('Manage microphone in browser settings.')} />
+              <PermissionPill icon={<Monitor size={14} />} label="Permission n..." onClick={() => showToast('Manage screenshare in browser settings.')} />
+              <PermissionPill icon={<Video size={14} />} label="Permission n..." onClick={() => showToast('Manage camera in browser settings.')} />
+              <PermissionPill icon={<Sparkles size={14} />} label="Permission n..." onClick={() => showToast('Effects are currently disabled.')} />
             </div>
           </div>
         </div>

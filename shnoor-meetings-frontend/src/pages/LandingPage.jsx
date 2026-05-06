@@ -89,17 +89,17 @@ export default function LandingPage() {
       const response = await fetch(buildApiUrl('/api/meetings/create'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-           room_id: frontendRoomId,
-           host_id: currentUser?.meetingUserId || null,
-           host_email: currentUser?.email || null,
-           host_name: currentUser?.name || null,
-           firebase_uid: currentUser?.firebaseUid || null,
+        body: JSON.stringify({
+          room_id: frontendRoomId,
+          host_id: currentUser?.meetingUserId || null,
+          host_email: currentUser?.email || null,
+          host_name: currentUser?.name || null,
+          firebase_uid: currentUser?.firebaseUid || null,
         }),
         signal: controller.signal
       });
       clearTimeout(timeoutId);
-      
+
       const data = await response.json();
       if (data.room_id) {
         markMeetingHost(data.room_id);
@@ -128,10 +128,10 @@ export default function LandingPage() {
   const handleSaveNativeEvent = async (eventData) => {
     setIsLoading(true);
     setShowEventModal(false);
-    
+
     const finalRoomId = eventData.room_id || eventData.id || crypto.randomUUID();
     markMeetingHost(finalRoomId);
-    
+
     try {
       const payload = {
         ...eventData,
@@ -140,13 +140,13 @@ export default function LandingPage() {
         user_email: currentUser?.email || null,
         room_id: finalRoomId,
       };
-      
+
       const response = await fetch(buildApiUrl('/api/calendar/events'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      
+
       if (response.ok) {
         // Update local storage so UpcomingMeetings reflects it instantly
         const identityKey = currentUser?.email?.trim().toLowerCase() || currentUser?.meetingUserId || 'guest';
@@ -185,15 +185,15 @@ export default function LandingPage() {
 
   return (
     <div className="flex flex-col h-screen bg-white">
-      <MeetingHeader 
-  onOpenChatbot={() => setIsChatbotOpen(true)}
-  toggleSidebar={() => setIsSidebarOpen(prev => !prev)}
-/>
-      
+      <MeetingHeader
+        onOpenChatbot={() => setIsChatbotOpen(true)}
+        toggleSidebar={() => setIsSidebarOpen(prev => !prev)}
+      />
+
       <div className="flex flex-1 overflow-hidden">
-        {isSidebarOpen && <MeetingSidebar />}
-        
-        <main className="flex-1 flex flex-col md:flex-row items-center justify-between px-8 md:px-16 py-12 gap-12 overflow-y-auto ml-[60px]">
+        {isSidebarOpen && <MeetingSidebar onClose={() => setIsSidebarOpen(false)} />}
+
+        <main className="flex-1 flex flex-col md:flex-row items-center justify-between px-4 sm:px-8 md:px-16 py-12 gap-12 overflow-y-auto md:ml-[60px] ml-0">
           {/* Left Column: Call to Action */}
           <div className="flex-1 max-w-xl text-left">
             <h1 className="text-4xl md:text-5xl font-normal text-gray-800 leading-tight mb-6">
@@ -266,19 +266,19 @@ export default function LandingPage() {
           <div className="flex-1 flex flex-col items-center justify-center">
             <div className="relative group max-w-lg">
               <div className="bg-blue-50/50 rounded-full p-12 mb-6">
-                <img 
-                  src={illustration} 
-                  alt="Meeting Illustration" 
+                <img
+                  src={illustration}
+                  alt="Meeting Illustration"
                   className="w-full h-auto drop-shadow-xl transform group-hover:scale-105 transition-transform duration-700"
                 />
               </div>
-              
+
               <div className="flex flex-col items-center gap-2">
                 <h3 className="text-xl font-medium text-gray-800">Get a link you can share</h3>
                 <p className="text-gray-500 text-center text-sm max-w-sm">
                   Click <strong>New meeting</strong> to get a link you can send to people you want to meet with
                 </p>
-                
+
                 <div className="flex items-center gap-4 mt-8">
                   <button className="p-2 hover:bg-gray-100 rounded-full border border-gray-200 shadow-sm transition-colors">
                     <ChevronLeft size={20} className="text-gray-500" />
@@ -298,17 +298,17 @@ export default function LandingPage() {
         </main>
       </div>
 
-      <InviteModal 
-        isOpen={showInviteModal} 
-        onClose={() => setShowInviteModal(false)} 
-        roomId={laterRoomId} 
+      <InviteModal
+        isOpen={showInviteModal}
+        onClose={() => setShowInviteModal(false)}
+        roomId={laterRoomId}
       />
 
-      <EventModal 
-        isOpen={showEventModal} 
-        onClose={() => setShowEventModal(false)} 
-        selectedDate={new Date()} 
-        onSave={handleSaveNativeEvent} 
+      <EventModal
+        isOpen={showEventModal}
+        onClose={() => setShowEventModal(false)}
+        selectedDate={new Date()}
+        onSave={handleSaveNativeEvent}
       />
 
       {/* Join Meeting Modal */}
@@ -317,7 +317,7 @@ export default function LandingPage() {
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md transform scale-100 transition-transform">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-medium text-gray-800">Join a meeting</h2>
-              <button onClick={() => {setShowJoinModal(false); setMeetingCode(''); setParticipantName('');}} className="text-gray-400 hover:bg-gray-100 rounded-full p-2 transition-colors">
+              <button onClick={() => { setShowJoinModal(false); setMeetingCode(''); setParticipantName(''); }} className="text-gray-400 hover:bg-gray-100 rounded-full p-2 transition-colors">
                 <X size={20} />
               </button>
             </div>
@@ -345,7 +345,7 @@ export default function LandingPage() {
               <div className="flex justify-end gap-3 mt-4">
                 <button
                   type="button"
-                  onClick={() => {setShowJoinModal(false); setMeetingCode(''); setParticipantName('');}}
+                  onClick={() => { setShowJoinModal(false); setMeetingCode(''); setParticipantName(''); }}
                   className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors font-medium"
                 >
                   Cancel
@@ -367,7 +367,7 @@ export default function LandingPage() {
       {isChatbotOpen ? (
         <ChatbotPanel onClose={() => setIsChatbotOpen(false)} />
       ) : (
-        <button 
+        <button
           onClick={() => setIsChatbotOpen(true)}
           className="fixed bottom-8 right-8 bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-full shadow-2xl transition-transform hover:scale-110 z-40 flex items-center justify-center animate-bounce-short"
           title="Open AI Assistant"

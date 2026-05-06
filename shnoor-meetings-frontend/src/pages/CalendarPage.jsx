@@ -92,6 +92,7 @@ async function persistEventToApi(event, currentUser, options = {}) {
 }
 
 export default function CalendarPage() {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const currentUser = getCurrentUser();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState('Month');
@@ -100,6 +101,7 @@ export default function CalendarPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
+  const [creationCategory, setCreationCategory] = useState('meetings');
 
   useEffect(() => {
     fetchEvents();
@@ -274,22 +276,39 @@ export default function CalendarPage() {
 
   return (
     <div className="flex flex-col h-screen bg-white overflow-hidden text-gray-900">
-      <MeetingHeader />
+      <MeetingHeader toggleSidebar={() => setIsSidebarOpen(prev => !prev)} />
       
       <div className="flex flex-1 overflow-hidden">
-        <MeetingSidebar />
-        <CalendarSidebar
-          currentDate={currentDate}
-          onDateSelect={setCurrentDate}
-          onCreateEvent={() => {
-            setSelectedEvent(null);
-            setSelectedDate(new Date());
-            setIsModalOpen(true);
-          }}
-          activeCategories={activeCategories}
-          onToggleCategory={handleToggleCategory}
-          upcomingReminders={upcomingReminders}
-        />
+        {isSidebarOpen && (
+          <MeetingSidebar 
+            onClose={() => setIsSidebarOpen(false)} 
+            activeCategories={activeCategories}
+            onToggleCategory={handleToggleCategory}
+            upcomingReminders={upcomingReminders}
+            onCreateEvent={(category = 'meetings') => {
+              setSelectedEvent(null);
+              setSelectedDate(new Date());
+              setCreationCategory(category);
+              setIsModalOpen(true);
+              setIsSidebarOpen(false);
+            }}
+          />
+        )}
+        <div className="hidden lg:flex">
+          <CalendarSidebar
+            currentDate={currentDate}
+            onDateSelect={setCurrentDate}
+            onCreateEvent={(category = 'meetings') => {
+              setSelectedEvent(null);
+              setSelectedDate(new Date());
+              setCreationCategory(category);
+              setIsModalOpen(true);
+            }}
+            activeCategories={activeCategories}
+            onToggleCategory={handleToggleCategory}
+            upcomingReminders={upcomingReminders}
+          />
+        </div>
         
         <main className="flex-1 flex flex-col min-w-0">
           <CalendarHeader 
@@ -336,6 +355,7 @@ export default function CalendarPage() {
         selectedDate={selectedDate}
         onSave={handleSaveEvent}
         event={selectedEvent}
+        initialCategory={creationCategory}
       />
     </div>
   );

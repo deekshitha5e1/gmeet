@@ -77,22 +77,22 @@ export default function LoginPage() {
       {/* Left Side: Illustration (Hidden on Mobile) */}
       <div className="hidden lg:flex lg:w-1/2 bg-white items-center justify-center p-12">
         <div className="max-w-xl text-center">
-          <img 
-            src={loginIllustration} 
-            alt="Collaborative Meeting" 
+          <img
+            src={loginIllustration}
+            alt="Collaborative Meeting"
             className="w-full h-auto mb-8 rounded-2xl shadow-2xl"
           />
           <h2 className="text-3xl font-bold text-slate-800 mb-4">Elevate Your Meetings</h2>
           <p className="text-slate-600 text-lg">
-            Experience seamless collaboration with high-quality video, 
+            Experience seamless collaboration with high-quality video,
             real-time sharing, and professional tools designed for modern teams.
           </p>
         </div>
       </div>
 
       {/* Right Side: Login Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12">
-        <div className="w-full max-w-md bg-white rounded-3xl p-8 sm:p-10 shadow-[0_20px_50px_rgba(0,0,0,0.05)] border border-slate-100">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-8 md:p-12">
+        <div className="w-full max-w-md bg-white rounded-3xl p-6 sm:p-10 shadow-[0_20px_50px_rgba(0,0,0,0.05)] border border-slate-100">
           <div className="mb-10">
             <h1 className="text-3xl font-bold text-slate-900 mb-2">Welcome Back</h1>
             <p className="text-slate-500">Please enter your details to sign in.</p>

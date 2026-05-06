@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Bell } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Bell, ChevronDown, Calendar, CheckCircle, Coffee, Briefcase } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths } from 'date-fns';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const categoryStyles = {
   personal: 'text-blue-600',
@@ -17,6 +18,12 @@ export default function CalendarSidebar({
   upcomingReminders,
 }) {
   const [displayDate, setDisplayDate] = useState(currentDate);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+
+  const createOptions = [
+    { label: 'Event', icon: Calendar, category: 'meetings', color: 'text-blue-600' },
+    { label: 'Task', icon: CheckCircle, category: 'reminders', color: 'text-blue-600' },
+  ];
 
   const handlePrevMonth = (e) => {
     e.stopPropagation();
@@ -76,13 +83,47 @@ export default function CalendarSidebar({
 
   return (
     <aside className="w-64 border-r border-gray-100 bg-white flex flex-col p-4 shadow-sm overflow-y-auto">
-      <button 
-        onClick={onCreateEvent}
-        className="flex items-center gap-4 bg-white hover:bg-gray-50 text-gray-700 font-medium py-3 px-6 rounded-full shadow-lg border border-gray-100 transition-all transform hover:scale-105 active:scale-95 mb-8 group"
-      >
-        <Plus size={28} className="text-blue-600 group-hover:rotate-90 transition-transform duration-300" />
-        <span className="text-sm font-semibold">Create</span>
-      </button>
+      <div className="relative mb-8">
+        <button 
+          onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+          className="flex items-center gap-3 bg-white hover:bg-gray-50 text-gray-700 font-medium py-2.5 px-5 rounded-full shadow-md border border-gray-100 transition-all transform hover:shadow-lg active:scale-95 group min-w-[140px]"
+        >
+          <Plus size={24} className="text-blue-600 group-hover:rotate-90 transition-transform duration-300" />
+          <span className="text-sm font-semibold mr-2">Create</span>
+          <ChevronDown size={16} className={`text-gray-400 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+        </button>
+
+        <AnimatePresence>
+          {isDropdownOpen && (
+            <>
+              <div 
+                className="fixed inset-0 z-10" 
+                onClick={() => setIsDropdownOpen(false)} 
+              />
+              <motion.div
+                initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-2xl border border-gray-100 py-2 z-20 overflow-hidden"
+              >
+                {createOptions.map((option) => (
+                  <button
+                    key={option.label}
+                    onClick={() => {
+                      onCreateEvent(option.category);
+                      setIsDropdownOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition-colors text-left"
+                  >
+                    <option.icon size={18} className="text-gray-400" />
+                    <span>{option.label}</span>
+                  </button>
+                ))}
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+      </div>
 
       {renderMiniCalendar()}
 

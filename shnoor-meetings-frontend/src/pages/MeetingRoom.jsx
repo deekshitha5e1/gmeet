@@ -205,7 +205,7 @@ const MeetingRoom = () => {
 
         {/* Floating join-request banner – visible even when People panel is closed */}
         {isHost && activeJoinRequests.length > 0 && activePanel !== 'people' && pipMode !== PIP_MODES.MINIMIZED && (
-          <div className="absolute top-4 right-4 z-30 flex flex-col gap-2 max-w-xs animate-in slide-in-from-top-4 duration-300">
+          <div className="absolute top-16 md:top-4 right-2 md:right-4 z-30 flex flex-col gap-2 w-[calc(100%-1rem)] md:max-w-xs animate-in slide-in-from-top-4 duration-300">
             {activeJoinRequests.map(req => (
               <div
                 key={req.id}

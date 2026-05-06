@@ -5,6 +5,7 @@ import MeetingSidebar from '../components/MeetingSidebar';
 import { formatDateTime, formatDuration, getCallHistory, removeCallHistoryEntry } from '../utils/meetingUtils';
 
 export default function CallsPage() {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [callHistory, setCallHistory] = useState(getCallHistory);
   const [tick, setTick] = useState(Date.now());
@@ -36,10 +37,10 @@ export default function CallsPage() {
 
   return (
     <div className="flex flex-col h-screen bg-white">
-      <MeetingHeader />
+      <MeetingHeader toggleSidebar={() => setIsSidebarOpen(prev => !prev)} />
 
       <div className="flex flex-1 overflow-hidden">
-        <MeetingSidebar />
+        {isSidebarOpen && <MeetingSidebar onClose={() => setIsSidebarOpen(false)} />}
 
         <main className="flex-1 flex flex-col items-center bg-white overflow-y-auto pt-8 px-4 md:px-0">
           <div className="w-full max-w-2xl bg-white shadow-[0_2px_10px_rgba(0,0,0,0.08)] border border-gray-100 rounded-2xl p-4 mb-12 flex items-center gap-4 group transition-all hover:shadow-lg focus-within:ring-2 focus-within:ring-blue-100">

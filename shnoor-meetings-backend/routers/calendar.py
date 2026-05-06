@@ -51,6 +51,9 @@ class CalendarEvent(BaseModel):
     category: str = "meetings"
     room_id: Optional[str] = None
     reminder_offset_minutes: Optional[int] = 5
+    location: Optional[str] = ""
+    guest_permissions: Optional[str] = "{}"
+    participant_emails: Optional[List[str]] = []
 
 class CalendarEventCreate(BaseModel):
     id: Optional[str] = None          # client may supply a stable UUID
@@ -65,6 +68,9 @@ class CalendarEventCreate(BaseModel):
     category: str = "meetings"
     room_id: Optional[str] = None
     reminder_offset_minutes: Optional[int] = 5
+    location: Optional[str] = ""
+    guest_permissions: Optional[str] = "{}"
+    participant_emails: Optional[List[str]] = []
 
 class CreateEventResponse(BaseModel):
     id: str
@@ -163,7 +169,10 @@ async def get_events(
                     end_time=r.get("end_time"),
                     category=normalize_event_category(r.get("category")),
                     room_id=str(r.get("room_id")) if r.get("room_id") else None,
-                    reminder_offset_minutes=r.get("reminder_offset_minutes", DEFAULT_REMINDER_OFFSET_MINUTES)
+                    reminder_offset_minutes=r.get("reminder_offset_minutes", DEFAULT_REMINDER_OFFSET_MINUTES),
+                    location=r.get("location") or "",
+                    guest_permissions=r.get("guest_permissions") or "{}",
+                    participant_emails=json.loads(r.get("participant_emails") or "[]")
                 )
             )
         return events
@@ -210,6 +219,14 @@ async def create_event(event: CalendarEventCreate):
         reminder_mins = event.reminder_offset_minutes or DEFAULT_REMINDER_OFFSET_MINUTES
         reminder_time = event.start_time - timedelta(minutes=reminder_mins)
 
+        # Participant emails — validated and deduplicated
+        participant_list = []
+        for em in (event.participant_emails or []):
+            normalized = (em or "").strip().lower()
+            if normalized and normalized != host_email and normalized not in participant_list:
+                participant_list.append(normalized)
+        participant_emails_json = json.dumps(participant_list)
+
         conn = get_db_connection()
         if not conn:
             raise HTTPException(status_code=500, detail="Database connection is unavailable")
@@ -218,13 +235,13 @@ async def create_event(event: CalendarEventCreate):
         cursor = get_dict_cursor(conn)
         p = "%s" if db_type == "postgres" else "?"
 
-        placeholders = ", ".join([p] * 13)
+        placeholders = ", ".join([p] * 16)
         cursor.execute(
             f"""
             INSERT INTO calendar_events
               (id, user_id, recipient_email, host_email, guest_emails,
                title, description, start_time, end_time, category,
-               room_id, reminder_offset_minutes, reminder_time)
+               room_id, reminder_offset_minutes, reminder_time, location, guest_permissions, participant_emails)
             VALUES ({placeholders})
             """,
             (
@@ -241,6 +258,9 @@ async def create_event(event: CalendarEventCreate):
                 room_id,
                 reminder_mins,
                 reminder_time,
+                event.location,
+                event.guest_permissions,
+                participant_emails_json,
             )
         )
         conn.commit()
@@ -316,6 +336,13 @@ async def update_event(id: str, event: CalendarEvent):
         reminder_mins = event.reminder_offset_minutes or DEFAULT_REMINDER_OFFSET_MINUTES
         reminder_time = event.start_time - timedelta(minutes=reminder_mins)
 
+        participant_list = []
+        for em in (event.participant_emails or []):
+            normalized = (em or "").strip().lower()
+            if normalized and normalized != host_email and normalized not in participant_list:
+                participant_list.append(normalized)
+        participant_emails_json = json.dumps(participant_list)
+
         cursor.execute(
             f"""
             UPDATE calendar_events
@@ -331,6 +358,9 @@ async def update_event(id: str, event: CalendarEvent):
                 room_id = {p},
                 reminder_offset_minutes = {p},
                 reminder_time = {p},
+                location = {p},
+                guest_permissions = {p},
+                participant_emails = {p},
                 reminder_sent_at = NULL,
                 notification_sent = 0
             WHERE id = {p}
@@ -348,6 +378,9 @@ async def update_event(id: str, event: CalendarEvent):
                 room_id,
                 reminder_mins,
                 reminder_time,
+                event.location,
+                event.guest_permissions,
+                participant_emails_json,
                 id,
             )
         )
