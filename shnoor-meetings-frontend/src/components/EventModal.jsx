@@ -369,56 +369,6 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
                           <HelpCircle size={16} className="text-gray-400 cursor-help" />
                         </div>
                       </div>
-
-                      {/* Guest & Participant Section for Tasks */}
-                      <div className="pt-4 border-t border-gray-50 space-y-4">
-                        <div className="flex items-start gap-4">
-                          <Users size={20} className="text-gray-400 mt-2" />
-                          <div className="flex-1 space-y-4">
-                            <div className="space-y-2">
-                              <div className="flex gap-2">
-                                <input
-                                  type="email"
-                                  placeholder="Add guest email"
-                                  value={newGuestEmail}
-                                  onChange={(e) => setNewGuestEmail(e.target.value)}
-                                  className="flex-1 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 text-sm text-gray-700 focus:border-blue-500 outline-none"
-                                />
-                                <button type="button" onClick={handleAddGuestEmail} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-xs font-semibold">Add</button>
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {guestEmails.map(email => (
-                                  <div key={email} className="flex items-center gap-1.5 bg-blue-50 text-blue-700 px-2 py-1 rounded-md text-xs">
-                                    {email}
-                                    <X size={12} className="cursor-pointer" onClick={() => handleRemoveGuestEmail(email)} />
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-
-                            <div className="space-y-2">
-                              <div className="flex gap-2">
-                                <input
-                                  type="email"
-                                  placeholder="Add participant email"
-                                  value={newParticipantEmail}
-                                  onChange={(e) => setNewParticipantEmail(e.target.value)}
-                                  className="flex-1 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 text-sm text-gray-700 focus:border-emerald-500 outline-none"
-                                />
-                                <button type="button" onClick={handleAddParticipantEmail} className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-semibold">Add</button>
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {participantEmails.map(email => (
-                                  <div key={email} className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-2 py-1 rounded-md text-xs">
-                                    {email}
-                                    <X size={12} className="cursor-pointer" onClick={() => handleRemoveParticipantEmail(email)} />
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
                     </div>
                   </div>
                 ) : (
