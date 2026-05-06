@@ -203,13 +203,14 @@ def _build_email_html(
 
     btn_html = ""
     if meet_link:
+        btn_text = "View Task Details" if display_category == "Task" else "Join Meeting Now"
         btn_html = f"""
         <div style="text-align:center;margin:32px 0 20px;">
           <a href="{meet_link}"
              style="background:#2563EB;color:#ffffff;text-decoration:none;padding:14px 40px;
                     border-radius:10px;font-size:15px;font-weight:700;letter-spacing:0.5px;
                     display:inline-block;box-shadow:0 4px 14px rgba(37,99,235,0.35);">
-            ▶&nbsp; Join Meeting Now
+            ▶&nbsp; {btn_text}
           </a>
           <div style="margin-top:12px;color:#9CA3AF;font-size:11px;">Or copy: {meet_link}</div>
         </div>"""
@@ -403,10 +404,14 @@ def send_host_reminder_email(event: dict):
         logger.warning("send_host_reminder_email: no host_email for event %s", event.get("id"))
         return
 
-    title = event.get("title") or "Untitled Meeting"
-    subject = f"✅ Meeting Reminder: {title}"
-    heading = "⏰ Meeting Reminder"
-    intro_line = f"Hi, your meeting <strong>{title}</strong> is starting soon. Here are the details:"
+    title = event.get("title") or "Untitled"
+    category = event.get("category", "").lower()
+    is_task = category in ["task", "reminder", "reminders"]
+    category_label = "Task" if is_task else "Meeting"
+
+    subject = f"✅ {category_label} Reminder: {title}"
+    heading = f"⏰ {category_label} Reminder"
+    intro_line = f"Hi, your {category_label.lower()} <strong>{title}</strong> is starting soon. Here are the details:"
 
     guest_emails = _parse_email_list(event.get("guest_emails"))
     participant_emails = _parse_email_list(event.get("participant_emails"))
@@ -437,11 +442,15 @@ def send_guest_reminder_email(event: dict, guest_email: str):
     if not guest_email:
         return
 
-    title = event.get("title") or "Untitled Meeting"
-    subject = f"📅 Meeting Reminder: {title}"
-    heading = "📅 You Have a Meeting Soon"
+    title = event.get("title") or "Untitled"
+    category = event.get("category", "").lower()
+    is_task = category in ["task", "reminder", "reminders"]
+    category_label = "Task" if is_task else "Meeting"
+
+    subject = f"📅 {category_label} Reminder: {title}"
+    heading = f"📅 You Have a {category_label} Soon"
     host_display = host_email or "Your organizer"
-    intro_line = f"<strong>{host_display}</strong> invited you to a meeting that is starting soon."
+    intro_line = f"<strong>{host_display}</strong> invited you to a {category_label.lower()} that is starting soon."
 
     guest_emails = _parse_email_list(event.get("guest_emails"))
     participant_emails = _parse_email_list(event.get("participant_emails"))
@@ -561,14 +570,18 @@ def send_invitation_emails(event: dict):
         logger.warning("No recipients found for invitation email.")
         return
 
-    title = event.get("title") or "Untitled Meeting"
+    title = event.get("title") or "Untitled"
+    category = event.get("category", "").lower()
+    is_task = category in ["task", "reminder", "reminders"]
+    category_label = "Task" if is_task else "Meeting"
+
     subject = f"📅 Invitation: {title}"
-    heading = "📩 New Meeting Invitation"
+    heading = f"📩 New {category_label} Invitation"
     
     host_display = host_email or "An organizer"
-    intro_line = f"<strong>{host_display}</strong> has invited you to a meeting."
+    intro_line = f"<strong>{host_display}</strong> has invited you to a {category_label.lower()}."
     if len(all_recipients) > 1:
-        intro_line = f"You are invited to a meeting scheduled by <strong>{host_display}</strong>."
+        intro_line = f"You are invited to a {category_label.lower()} scheduled by <strong>{host_display}</strong>."
 
     meet_link = _get_meet_link(event)
     reminder_mins = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
