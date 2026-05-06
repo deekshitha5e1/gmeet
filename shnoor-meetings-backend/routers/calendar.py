@@ -235,40 +235,42 @@ async def create_event(event: CalendarEventCreate):
         if not conn:
             raise HTTPException(status_code=500, detail="Database connection is unavailable")
 
-        db_type = get_db_type()
-        cursor = get_dict_cursor(conn)
-        p = "%s" if db_type == "postgres" else "?"
+        try:
+            db_type = get_db_type()
+            cursor = get_dict_cursor(conn)
+            p = "%s" if db_type == "postgres" else "?"
 
-        placeholders = ", ".join([p] * 16)
-        cursor.execute(
-            f"""
-            INSERT INTO calendar_events
-              (id, user_id, recipient_email, host_email, guest_emails,
-               title, description, start_time, end_time, category,
-               room_id, reminder_offset_minutes, reminder_time, location, guest_permissions, participant_emails)
-            VALUES ({placeholders})
-            """,
-            (
-                event_id,
-                user_id,
-                recipient_emails_str,
-                host_email,
-                guest_emails_json,
-                event.title,
-                event.description,
-                event.start_time,
-                event.end_time,
-                category,
-                room_id,
-                reminder_mins,
-                reminder_time,
-                event.location,
-                event.guest_permissions,
-                participant_emails_json,
+            placeholders = ", ".join([p] * 16)
+            cursor.execute(
+                f"""
+                INSERT INTO calendar_events
+                  (id, user_id, recipient_email, host_email, guest_emails,
+                   title, description, start_time, end_time, category,
+                   room_id, reminder_offset_minutes, reminder_time, location, guest_permissions, participant_emails)
+                VALUES ({placeholders})
+                """,
+                (
+                    event_id,
+                    user_id,
+                    recipient_emails_str,
+                    host_email,
+                    guest_emails_json,
+                    event.title,
+                    event.description,
+                    event.start_time,
+                    event.end_time,
+                    category,
+                    room_id,
+                    reminder_mins,
+                    reminder_time,
+                    event.location,
+                    event.guest_permissions,
+                    participant_emails_json,
+                )
             )
-        )
-        conn.commit()
-        release_db_connection(conn)
+            conn.commit()
+        finally:
+            release_db_connection(conn)
 
         # Emails are NOT sent immediately — the background scheduler handles delivery
         # when reminder_time is reached.
@@ -288,6 +290,7 @@ async def create_event(event: CalendarEventCreate):
                 "participant_emails": participant_emails_json,
                 "location": event.location
             }
+            print(f"Triggering immediate invitation emails for {event_id}. Recipients: {all_recipients}")
             threading.Thread(
                 target=send_invitation_emails,
                 args=(event_dict,),

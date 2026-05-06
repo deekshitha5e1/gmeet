@@ -320,7 +320,9 @@ def _send_via_smtp(to_emails: list, subject: str, plain_text: str, html_body: st
                 logger.info("Email sent via SMTP port %d to %s", port, recipients)
                 return
         except Exception as e:
+            logger.warning(f"SMTP attempt failed on port {port}: {e}")
             errors.append(f"Port {port}: {e}")
+    logger.error(f"All SMTP attempts failed for {recipients}: {'; '.join(errors)}")
     raise RuntimeError(f"All SMTP attempts failed: {'; '.join(errors)}")
 
 
@@ -463,17 +465,8 @@ def send_guest_reminder_email(event: dict, guest_email: str):
 
 def send_calendar_reminder_email(event: dict):
     """Legacy shim: send reminder to host + all guests + all participants."""
-    send_host_reminder_email(event)
-    for g in _parse_email_list(event.get("guest_emails")):
-        try:
-            send_guest_reminder_email(event, g)
-        except Exception as exc:
-            logger.error("Failed guest reminder to %s: %s", g, exc)
-    for p in _parse_email_list(event.get("participant_emails")):
-        try:
-            send_guest_reminder_email(event, p)
-        except Exception as exc:
-            logger.error("Failed participant reminder to %s: %s", p, exc)
+    logger.info("send_calendar_reminder_email (legacy) triggering send_invitation_emails")
+    send_invitation_emails(event)
 
 
 def send_host_invitation_email(event: dict):
@@ -605,8 +598,9 @@ def send_invitation_emails(event: dict):
 
 
 def send_meeting_scheduled_email(event: dict):
-    """Legacy shim kept for backward compat — now a no-op (scheduler handles delivery)."""
-    logger.info("send_meeting_scheduled_email called (no-op — scheduler handles reminders)")
+    """Legacy shim kept for backward compat — now triggers immediate invitations."""
+    logger.info("send_meeting_scheduled_email (legacy) triggering send_invitation_emails")
+    send_invitation_emails(event)
 
 
 # ─── Background Scheduler ─────────────────────────────────────────────────────

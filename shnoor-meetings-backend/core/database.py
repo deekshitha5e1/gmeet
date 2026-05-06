@@ -72,7 +72,7 @@ def init_db():
         dsn = _build_connection_dsn()
         if dsn:
             try:
-                _db_pool = ThreadedConnectionPool(1, 20, dsn=dsn)
+                _db_pool = ThreadedConnectionPool(1, 50, dsn=dsn) # Increase pool size
                 _db_type = "postgres"
                 # Test connection
                 conn = _db_pool.getconn()
@@ -133,18 +133,27 @@ def init_db():
     logger.info(f"SQLite initialized at {_sqlite_path}")
 
 def get_db_connection():
-    if _db_type == "postgres" and _db_pool:
+    if _db_type == "postgres":
+        if not _db_pool:
+            logger.error("get_db_connection: PostgreSQL pool is not initialized.")
+            return None
         try:
             return _db_pool.getconn()
-        except Exception:
+        except Exception as e:
+            logger.error(f"get_db_connection: Failed to get connection from PostgreSQL pool: {e}")
             return None
     elif _db_type == "sqlite":
+        if not _sqlite_path:
+            logger.error("get_db_connection: SQLite path is not set.")
+            return None
         try:
-            conn = sqlite3.connect(_sqlite_path)
+            conn = sqlite3.connect(_sqlite_path, timeout=20) # Add timeout for busy DB
             conn.row_factory = sqlite3.Row
             return conn
-        except Exception:
+        except Exception as e:
+            logger.error(f"get_db_connection: Failed to connect to SQLite: {e}")
             return None
+    logger.error(f"get_db_connection: Unknown database type: {_db_type}")
     return None
 
 def release_db_connection(conn):
