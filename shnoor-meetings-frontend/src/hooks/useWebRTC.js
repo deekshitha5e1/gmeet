@@ -586,8 +586,8 @@ export function useWebRTC(roomId, options = {}) {
       // --- Step 2: Always create the WebSocket regardless of media status ---
       try {
         const role = isHost.current ? 'host' : 'participant';
-        const wsUrl = buildWebSocketUrl(`/ws/${roomId}/${role}?client_id=${clientId.current}`);
-        console.log(`[WebSocket] Connecting to: ${wsUrl}`);
+        const email = currentUser.current?.email || sessionStorage.getItem(`meeting_email_${roomId}`) || '';
+        const wsUrl = buildWebSocketUrl(`/ws/${roomId}/${role}?client_id=${clientId.current}${email ? `&email=${encodeURIComponent(email)}` : ''}`);
         ws.current = new WebSocket(wsUrl);
 
         ws.current.onopen = () => {

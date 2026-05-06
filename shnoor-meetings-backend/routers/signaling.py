@@ -85,7 +85,7 @@ def is_invited_to_meeting(meeting_id: str, email: str) -> bool:
         release_db_connection(conn)
 
 @router.websocket("/ws/{meeting_id}/{role_or_id}")
-async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: str, client_id: str = None):
+async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: str, client_id: str = None, email: str = None):
     """
     WebSocket endpoint for handling signaling.
     Path format: /ws/{meeting_id}/{role}?client_id=...
@@ -102,6 +102,16 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
         cid = str(uuid.uuid4())
         
     await manager.connect(websocket, meeting_id, role, cid)
+
+    # Auto-admit if email is provided and invited
+    if role == "participant" and email and is_invited_to_meeting(meeting_id, email):
+        logger.info(f"Auto-admitting invited participant on connect: {email}")
+        manager.add_accepted_participant(meeting_id, cid)
+        # Tell the lobby they are admitted immediately
+        await websocket.send_json({
+            "type": "accepted",
+            "roomId": meeting_id
+        })
 
     try:
         while True:
