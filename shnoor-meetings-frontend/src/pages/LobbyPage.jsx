@@ -19,8 +19,9 @@ export default function LobbyPage() {
 
   // ── Role detection (synchronous, from sessionStorage/localStorage) ──────────
   const roleFromLink = new URLSearchParams(location.search).get('role');
+  const emailFromLink = new URLSearchParams(location.search).get('email');
   const storedRole = sessionStorage.getItem(`meeting_role_${roomId}`);
-  const normalizedCurrentEmail = (currentUser?.email || '').trim().toLowerCase();
+  const normalizedCurrentEmail = (emailFromLink || currentUser?.email || '').trim().toLowerCase();
   const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
   const storedHostFlag =
     Boolean(normalizedCurrentEmail && storedHostEmail && storedHostEmail === normalizedCurrentEmail) ||
@@ -85,9 +86,11 @@ export default function LobbyPage() {
           localStorage.setItem(`meeting_host_${roomId}`, hostValue);
           sessionStorage.setItem(`meeting_role_${roomId}`, 'host');
           sessionStorage.setItem(`meeting_name_${roomId}`, currentUser?.name || storedName);
+          if (normalizedCurrentEmail) sessionStorage.setItem(`meeting_email_${roomId}`, normalizedCurrentEmail);
           setResolvedRole('host');
         } else if (!storedHostFlag) {
           sessionStorage.setItem(`meeting_role_${roomId}`, 'participant');
+          if (normalizedCurrentEmail) sessionStorage.setItem(`meeting_email_${roomId}`, normalizedCurrentEmail);
           setResolvedRole('participant');
         }
       } catch (err) {

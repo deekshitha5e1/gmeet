@@ -190,13 +190,15 @@ export function useWebRTC(roomId, options = {}) {
 
     startSessionTracking(clientId.current, displayName.current, isHost.current ? 'host' : 'participant');
 
-    sendSignalingMessage({
+    const user = currentUser.current;
+    const payload = {
       type: 'join-room',
       user_id: clientId.current,
-      firebase_uid: currentUser.current?.firebaseUid || null,
-      email: currentUser.current?.email || null,
-      name: displayName.current,
-      picture: currentUser.current?.picture || null,
+      firebase_uid: user?.firebaseUid || null,
+      name: sessionStorage.getItem(`meeting_name_${roomId}`) || user?.name || 'Participant',
+      email: user?.email || sessionStorage.getItem(`meeting_email_${roomId}`) || null,
+      joined_at: new Date().toISOString(),
+      picture: user?.picture || null,
       role: isHost.current ? 'host' : 'participant',
       admitted: !isHost.current && sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true',
       isAudioEnabled,

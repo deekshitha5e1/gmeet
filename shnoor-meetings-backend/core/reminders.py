@@ -467,7 +467,7 @@ def send_guest_reminder_email(event: dict, guest_email: str):
         guest_emails=guest_emails,
         participant_emails=participant_emails,
         description=event.get("description") or "",
-        meet_link=meet_link,
+        meet_link=f"{meet_link}&email={guest_email}",
         reminder_mins=reminder_mins,
         category=event.get("category") or "meetings",
     )
@@ -607,7 +607,26 @@ def send_invitation_emails(event: dict):
         # This is more reliable for bypassing spam filters than one bulk email.
         for recipient in all_recipients:
             try:
-                _dispatch_group_email(all_recipients, subject, plain_text, html_body, reply_to=host_email, individual_recipient=recipient)
+                # Generate a personalized link for this specific recipient
+                personalized_link = f"{meet_link}&email={recipient}"
+                
+                # Re-build the HTML with the personalized link
+                _, p_html = _build_email_html(
+                    title=title,
+                    heading=heading,
+                    intro_line=intro_line,
+                    start_time=event.get("start_time"),
+                    end_time=event.get("end_time"),
+                    host_email=host_email,
+                    guest_emails=guest_emails,
+                    participant_emails=participant_emails,
+                    description=event.get("description") or "",
+                    meet_link=personalized_link,
+                    reminder_mins=reminder_mins,
+                    category=event.get("category") or "meetings",
+                )
+                
+                _dispatch_group_email(all_recipients, subject, plain_text, p_html, reply_to=host_email, individual_recipient=recipient)
             except Exception as individual_exc:
                 logger.error("Failed to send invitation email to %s: %s", recipient, individual_exc)
     except Exception as exc:
@@ -705,6 +724,7 @@ def process_pending_calendar_reminders():
             # Resolve guest_emails if missing
             if not event.get("guest_emails"):
                 fallback = event.get("fallback_email") or ""
+                parts = [e.strip() for e in fallback.split(",") if e.strip()]
                 guest_list = parts[1:] if len(parts) > 1 else []
                 event["guest_emails"] = json.dumps(guest_list)
 
