@@ -416,6 +416,33 @@ async def update_event(id: str, event: CalendarEvent):
             )
         )
         conn.commit()
+
+        # Trigger immediate invitation emails for updates as well
+        try:
+            event_dict = {
+                "id": id,
+                "title": event.title,
+                "description": event.description,
+                "category": category,
+                "start_time": event.start_time,
+                "end_time": event.end_time,
+                "room_id": room_id,
+                "reminder_offset_minutes": reminder_mins,
+                "host_email": host_email,
+                "guest_emails": guest_emails_json,
+                "participant_emails": participant_emails_json,
+                "location": event.location
+            }
+            print(f"Triggering update invitation emails for {id}.")
+            threading.Thread(
+                target=send_invitation_emails,
+                args=(event_dict,),
+                name=f"update-invitation-email-{id}",
+                daemon=True
+            ).start()
+        except Exception as e:
+            print(f"Non-fatal: Failed to trigger update invitation emails: {e}")
+
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Event not found")
     except Exception as e:
