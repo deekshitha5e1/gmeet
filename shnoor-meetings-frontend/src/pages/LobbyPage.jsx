@@ -309,7 +309,7 @@ export default function LobbyPage() {
               <div className="space-y-4 w-full">
                 <button onClick={joinMeeting} disabled={!participantName.trim() || !isWSConnected}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3.5 rounded-full shadow-lg shadow-blue-100 transition-all transform active:scale-95 text-md flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-                  <LogIn size={20} /> {isWSConnected ? 'Join Meeting' : 'Connecting...'}
+                  <LogIn size={20} /> {isWSConnected ? 'Join Now' : 'Connecting...'}
                 </button>
 
                 <button onClick={() => setShowInviteModal(true)}

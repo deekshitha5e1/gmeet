@@ -6,6 +6,7 @@ import socket
 import threading
 import urllib.request
 import urllib.error
+from urllib.parse import urlencode
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -95,12 +96,15 @@ def _format_dt(value) -> str:
         return str(value)
 
 
-def _get_meet_link(event: dict, role: str = "participant") -> str:
+def _get_meet_link(event: dict, role: str = "participant", email: str = "") -> str:
     room_id = event.get("room_id")
     if not room_id:
         return ""
     frontend_url = (os.getenv("FRONTEND_URL") or FRONTEND_URL).rstrip("/")
-    return f"{frontend_url}/meeting/{room_id}?role={role}"
+    query = {"role": role}
+    if email:
+        query["email"] = email.strip().lower()
+    return f"{frontend_url}/meeting/{room_id}?{urlencode(query)}"
 
 
 def _parse_email_list(raw) -> list:
@@ -415,7 +419,7 @@ def send_host_reminder_email(event: dict):
 
     guest_emails = _parse_email_list(event.get("guest_emails"))
     participant_emails = _parse_email_list(event.get("participant_emails"))
-    meet_link = _get_meet_link(event, role="host")
+    meet_link = _get_meet_link(event, role="host", email=host_email)
     reminder_mins = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
 
     plain_text, html_body = _build_email_html(
@@ -454,7 +458,7 @@ def send_guest_reminder_email(event: dict, guest_email: str):
 
     guest_emails = _parse_email_list(event.get("guest_emails"))
     participant_emails = _parse_email_list(event.get("participant_emails"))
-    meet_link = _get_meet_link(event, role="participant")
+    meet_link = _get_meet_link(event, role="participant", email=guest_email)
     reminder_mins = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
 
     plain_text, html_body = _build_email_html(
@@ -467,7 +471,7 @@ def send_guest_reminder_email(event: dict, guest_email: str):
         guest_emails=guest_emails,
         participant_emails=participant_emails,
         description=event.get("description") or "",
-        meet_link=f"{meet_link}&email={guest_email}",
+        meet_link=meet_link,
         reminder_mins=reminder_mins,
         category=event.get("category") or "meetings",
     )
@@ -495,7 +499,7 @@ def send_host_invitation_email(event: dict):
 
     guest_emails = _parse_email_list(event.get("guest_emails"))
     participant_emails = _parse_email_list(event.get("participant_emails"))
-    meet_link = _get_meet_link(event, role="host")
+    meet_link = _get_meet_link(event, role="host", email=host_email)
     reminder_mins = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
 
     plain_text, html_body = _build_email_html(
@@ -530,7 +534,7 @@ def send_guest_invitation_email(event: dict, guest_email: str):
 
     guest_emails = _parse_email_list(event.get("guest_emails"))
     participant_emails = _parse_email_list(event.get("participant_emails"))
-    meet_link = _get_meet_link(event, role="participant")
+    meet_link = _get_meet_link(event, role="participant", email=guest_email)
     reminder_mins = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
 
     plain_text, html_body = _build_email_html(
@@ -583,7 +587,7 @@ def send_invitation_emails(event: dict):
     if len(all_recipients) > 1:
         intro_line = f"You are invited to a {category_label.lower()} scheduled by <strong>{host_display}</strong>."
 
-    meet_link = _get_meet_link(event, role="host") # Base link for organizer, appended for guests below
+    host_meet_link = _get_meet_link(event, role="host", email=host_email)
     reminder_mins = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
 
     plain_text, html_body = _build_email_html(
@@ -596,7 +600,7 @@ def send_invitation_emails(event: dict):
         guest_emails=guest_emails,
         participant_emails=participant_emails,
         description=event.get("description") or "",
-        meet_link=meet_link,
+        meet_link=host_meet_link,
         reminder_mins=reminder_mins,
         category=event.get("category") or "meetings",
     )
@@ -607,11 +611,16 @@ def send_invitation_emails(event: dict):
         # This is more reliable for bypassing spam filters than one bulk email.
         for recipient in all_recipients:
             try:
-                # Generate a personalized link for this specific recipient
-                personalized_link = f"{meet_link}&email={recipient}"
+                # Generate a personalized role-aware link for this specific recipient.
+                is_host_recipient = host_email and recipient.strip().lower() == host_email.strip().lower()
+                personalized_link = _get_meet_link(
+                    event,
+                    role="host" if is_host_recipient else "participant",
+                    email=recipient,
+                )
                 
                 # Re-build the HTML with the personalized link
-                _, p_html = _build_email_html(
+                p_plain_text, p_html = _build_email_html(
                     title=title,
                     heading=heading,
                     intro_line=intro_line,
@@ -626,7 +635,7 @@ def send_invitation_emails(event: dict):
                     category=event.get("category") or "meetings",
                 )
                 
-                _dispatch_group_email(all_recipients, subject, plain_text, p_html, reply_to=host_email, individual_recipient=recipient)
+                _dispatch_group_email(all_recipients, subject, p_plain_text, p_html, reply_to=host_email, individual_recipient=recipient)
             except Exception as individual_exc:
                 logger.error("Failed to send invitation email to %s: %s", recipient, individual_exc)
     except Exception as exc:

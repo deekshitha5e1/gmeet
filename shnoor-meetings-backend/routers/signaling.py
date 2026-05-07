@@ -123,6 +123,39 @@ def is_invited_to_meeting(meeting_id: str, email: str) -> bool:
     finally:
         release_db_connection(conn)
 
+def is_host_of_meeting(meeting_id: str, email: str) -> bool:
+    """Check whether the email is the organizer for this meeting."""
+    if not meeting_id or not email:
+        return False
+
+    email = email.strip().lower()
+    meeting = get_meeting_record(meeting_id) or {}
+    if (meeting.get("host_email") or "").strip().lower() == email:
+        return True
+
+    conn = get_db_connection()
+    if not conn:
+        return False
+
+    try:
+        cursor = get_dict_cursor(conn)
+        p = "%s" if get_db_type() == "postgres" else "?"
+        cursor.execute(
+            f"""
+            SELECT host_email
+            FROM calendar_events
+            WHERE room_id = {p} OR id = {p}
+            """,
+            (meeting_id, meeting_id)
+        )
+        row = cursor.fetchone()
+        return bool(row and (row.get("host_email") or "").strip().lower() == email)
+    except Exception as e:
+        logger.error(f"Error checking host email for {meeting_id}: {e}")
+        return False
+    finally:
+        release_db_connection(conn)
+
 @router.websocket("/ws/{meeting_id}/{role_or_id}")
 async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: str, client_id: str = None, email: str = None):
     """
@@ -133,6 +166,14 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
     # Detect if role_or_id is a role or a client_id
     is_explicit_role = role_or_id in ["host", "participant"]
     role = role_or_id if is_explicit_role else "participant"
+    normalized_email = (email or "").strip().lower()
+    if role == "host" and normalized_email and not is_host_of_meeting(meeting_id, normalized_email):
+        logger.warning(
+            "Downgrading non-host websocket role for %s in meeting %s",
+            normalized_email,
+            meeting_id,
+        )
+        role = "participant"
     
     # Final client ID resolution
     cid = client_id or (role_or_id if not is_explicit_role else None)
@@ -152,6 +193,13 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
             
             # Allow upgrading to host via message (legacy frontend support)
             if msg_type in ["host_join", "host-ready"]:
+                if normalized_email and not is_host_of_meeting(meeting_id, normalized_email):
+                    logger.warning(
+                        "Ignoring host promotion for non-host email %s in meeting %s",
+                        normalized_email,
+                        meeting_id,
+                    )
+                    continue
                 role = "host"
                 manager.promote_to_host(meeting_id, websocket, cid)
                 await sync_waiting_room(meeting_id)
@@ -220,13 +268,9 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
                 )
                 user_id = user_record.get("id") if isinstance(user_record, dict) else (data.get("user_id") or cid)
                 
-                # Security check for participants
+                # Security check for participants. Guests and invited participants
+                # still need explicit host approval before entering the room.
                 if role == "participant":
-                    invited = is_invited_to_meeting(meeting_id, email)
-                    if invited:
-                        manager.add_accepted_participant(meeting_id, cid)
-                        client_admitted = True
-                        
                     if not client_admitted and not manager.is_participant_accepted(meeting_id, cid):
                         logger.warning(f"join-room BLOCKED: {cid} not admitted to {meeting_id}")
                         await websocket.send_json({
@@ -283,6 +327,14 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
                 continue
 
             if msg_type in ["admit", "accept_user", "deny"]:
+                if role != "host":
+                    logger.warning(
+                        "Ignoring %s from non-host client %s in meeting %s",
+                        msg_type,
+                        cid,
+                        meeting_id,
+                    )
+                    continue
                 target_id = data.get("target") or (data.get("user") or {}).get("id")
                 if target_id:
                     manager.remove_waiting_request(meeting_id, target_id)

@@ -2,7 +2,15 @@ import uuid
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from core.connection_manager import manager
-from core.database import ensure_meeting_record, get_meeting_record, get_or_create_user
+from core.database import (
+    ensure_meeting_record,
+    get_db_connection,
+    get_db_type,
+    get_dict_cursor,
+    get_meeting_record,
+    get_or_create_user,
+    release_db_connection,
+)
 
 router = APIRouter(
     prefix="/api/meetings",
@@ -22,6 +30,20 @@ class CreateMeetingRequest(BaseModel):
 
 class JoinMeetingRequest(BaseModel):
     room_id: str
+
+def _parse_email_list(raw):
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return [str(email).strip().lower() for email in raw if str(email).strip()]
+    try:
+        import json
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return [str(email).strip().lower() for email in parsed if str(email).strip()]
+    except Exception:
+        pass
+    return [email.strip().lower() for email in str(raw).split(",") if email.strip()]
 
 @router.post("/create", response_model=CreateMeetingResponse)
 async def create_meeting(payload: CreateMeetingRequest | None = None):
@@ -77,39 +99,39 @@ async def check_meeting(room_id: str):
         meeting = manager.get_registered_meeting(room_id)
 
     if meeting:
-        # Check for associated calendar event to get guests/participants
+        # Check for associated calendar event to get organizer, guests, and participants.
+        # Calendar-created meetings keep the definitive email list here.
         conn = get_db_connection()
         invited_emails = []
+        calendar_host_email = None
         if conn:
             try:
                 cursor = get_dict_cursor(conn)
                 p = "%s" if get_db_type() == "postgres" else "?"
                 cursor.execute(
-                    f"SELECT guest_emails, participant_emails FROM calendar_events WHERE room_id = {p} OR id = {p}",
+                    f"""
+                    SELECT host_email, guest_emails, participant_emails
+                    FROM calendar_events
+                    WHERE room_id = {p} OR id = {p}
+                    """,
                     (room_id, room_id)
                 )
                 event_row = cursor.fetchone()
                 if event_row:
-                    import json
-                    guests = event_row.get("guest_emails")
-                    if guests:
-                        try:
-                            invited_emails.extend(json.loads(guests) if isinstance(guests, str) else guests)
-                        except: pass
-                    parts = event_row.get("participant_emails")
-                    if parts:
-                        try:
-                            invited_emails.extend(json.loads(parts) if isinstance(parts, str) else parts)
-                        except: pass
+                    calendar_host_email = (event_row.get("host_email") or "").strip().lower() or None
+                    invited_emails.extend(_parse_email_list(event_row.get("guest_emails")))
+                    invited_emails.extend(_parse_email_list(event_row.get("participant_emails")))
             finally:
                 release_db_connection(conn)
+
+        host_email = (meeting.get("host_email") or calendar_host_email or "").strip().lower() or None
 
         return {
             "room_id": room_id,
             "valid": True,
             "host_id": meeting.get("host_id"),
-            "host_email": meeting.get("host_email"),
+            "host_email": host_email,
             "host_name": meeting.get("host_name"),
-            "invited_emails": list(set(e.lower().strip() for e in invited_emails if e))
+            "invited_emails": list(set(e for e in invited_emails if e and e != host_email))
         }
     return {"room_id": room_id, "valid": False}

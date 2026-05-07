@@ -44,6 +44,14 @@ function getDisplayName(roomId, isHost) {
   return generatedName;
 }
 
+function getEmailFromUrl() {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+
+  return new URLSearchParams(window.location.search).get('email') || '';
+}
+
 export function useWebRTC(roomId, options = {}) {
   const {
     acquireMedia = true,
@@ -64,7 +72,7 @@ export function useWebRTC(roomId, options = {}) {
   const initialMediaState = useRef(getPreJoinMediaState(roomId));
   const [isAudioEnabled, setIsAudioEnabled] = useState(initialMediaState.current.audioEnabled);
   const [isVideoEnabled, setIsVideoEnabled] = useState(initialMediaState.current.videoEnabled);
-  const normalizedCurrentEmail = (getCurrentUser()?.email || '').trim().toLowerCase();
+  const normalizedCurrentEmail = (getEmailFromUrl() || getCurrentUser()?.email || '').trim().toLowerCase();
   const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
   const hasStoredHostAccess = Boolean(
     normalizedCurrentEmail &&
@@ -79,7 +87,7 @@ export function useWebRTC(roomId, options = {}) {
     const roleInSession = sessionStorage.getItem(`meeting_role_${roomId}`);
     const hostInLocal = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
     const currentUser = getCurrentUser();
-    const myEmail = (currentUser?.email || '').trim().toLowerCase();
+    const myEmail = (getEmailFromUrl() || sessionStorage.getItem(`meeting_email_${roomId}`) || currentUser?.email || '').trim().toLowerCase();
     const myId = currentUser?.meetingUserId;
 
     return (
@@ -196,7 +204,7 @@ export function useWebRTC(roomId, options = {}) {
       user_id: user?.meetingUserId || clientId.current,
       firebase_uid: user?.firebaseUid || null,
       name: sessionStorage.getItem(`meeting_name_${roomId}`) || user?.name || 'Participant',
-      email: user?.email || sessionStorage.getItem(`meeting_email_${roomId}`) || null,
+      email: getEmailFromUrl() || user?.email || sessionStorage.getItem(`meeting_email_${roomId}`) || null,
       picture: user?.picture || null,
       role: isHost.current ? 'host' : 'participant',
       admitted: !isHost.current && sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true',
@@ -588,7 +596,7 @@ export function useWebRTC(roomId, options = {}) {
       // --- Step 2: Always create the WebSocket regardless of media status ---
       try {
         const role = isHost.current ? 'host' : 'participant';
-        const email = currentUser.current?.email || sessionStorage.getItem(`meeting_email_${roomId}`) || '';
+        const email = getEmailFromUrl() || currentUser.current?.email || sessionStorage.getItem(`meeting_email_${roomId}`) || '';
         const wsUrl = buildWebSocketUrl(`/ws/${roomId}/${role}?client_id=${clientId.current}${email ? `&email=${encodeURIComponent(email)}` : ''}`);
         ws.current = new WebSocket(wsUrl);
 
@@ -680,7 +688,7 @@ export function useWebRTC(roomId, options = {}) {
       user: {
         id: clientId.current,
         name,
-        email: currentUser.current?.email || sessionStorage.getItem(`meeting_email_${roomId}`) || null,
+        email: getEmailFromUrl() || currentUser.current?.email || sessionStorage.getItem(`meeting_email_${roomId}`) || null,
         picture: currentUser.current?.picture || null
       }
     });
