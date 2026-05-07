@@ -252,7 +252,7 @@ function MeetingCard({ event, onRefresh }) {
             {/* Reminder badge */}
             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
               <Bell size={11} />
-              {event.reminder_offset_minutes === 60 ? '1 hour' : `${event.reminder_offset_minutes ?? 5} mins`} before
+              {event.reminder_offset_minutes === 60 ? '1 hour' : `${event.reminder_offset_minutes ?? 10} mins`} before
             </span>
 
             {/* Guest count */}

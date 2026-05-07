@@ -6,8 +6,13 @@ import socket
 import threading
 import urllib.request
 import urllib.error
+<<<<<<< Updated upstream
 from urllib.parse import urlencode
 from datetime import datetime
+=======
+import json
+from datetime import datetime, timedelta, timezone
+>>>>>>> Stashed changes
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
@@ -16,7 +21,7 @@ from core.database import get_db_connection, get_dict_cursor, release_db_connect
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_REMINDER_OFFSET_MINUTES = int((os.getenv("CALENDAR_REMINDER_OFFSET_MINUTES") or "5").strip() or "5")
+DEFAULT_REMINDER_OFFSET_MINUTES = int((os.getenv("CALENDAR_REMINDER_OFFSET_MINUTES") or "10").strip() or "10")
 REMINDER_POLL_INTERVAL_SECONDS = int((os.getenv("CALENDAR_REMINDER_POLL_INTERVAL_SECONDS") or "60").strip() or "60")
 
 _reminder_thread: Optional[threading.Thread] = None
@@ -76,7 +81,10 @@ def _get_missing_resend_keys():
 # ─── Time Formatting ──────────────────────────────────────────────────────────
 
 def _format_dt(value) -> str:
+<<<<<<< Updated upstream
     from datetime import timedelta
+=======
+>>>>>>> Stashed changes
     if not value:
         return "—"
     try:
@@ -84,6 +92,7 @@ def _format_dt(value) -> str:
             dt = value
         else:
             dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+<<<<<<< Updated upstream
         ist_offset = timedelta(hours=5, minutes=30)
         if dt.tzinfo is None:
             ist_dt = dt + ist_offset
@@ -93,6 +102,17 @@ def _format_dt(value) -> str:
         return ist_dt.strftime("%B %d, %Y at %I:%M %p IST")
     except Exception as e:
         logger.warning("Error formatting date %s: %s", value, e)
+=======
+            
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+            
+        ist_tz = timezone(timedelta(hours=5, minutes=30), name="IST")
+        dt_ist = dt.astimezone(ist_tz)
+        
+        return dt_ist.strftime("%B %d, %Y at %I:%M %p IST")
+    except Exception:
+>>>>>>> Stashed changes
         return str(value)
 
 

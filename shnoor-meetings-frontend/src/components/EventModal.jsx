@@ -32,7 +32,7 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
   const [endTime, setEndTime] = useState('');
   const [category, setCategory] = useState(normalizeEventCategory(event?.category));
   const [roomId, setRoomId] = useState(event?.room_id || '');
-  const [reminderOffsetMinutes, setReminderOffsetMinutes] = useState(5);
+  const [reminderOffsetMinutes, setReminderOffsetMinutes] = useState(10);
   const [guestEmails, setGuestEmails] = useState(event?.guest_emails || []);
   const [newGuestEmail, setNewGuestEmail] = useState('');
   const [participantEmails, setParticipantEmails] = useState(event?.participant_emails || []);
@@ -86,7 +86,7 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
         setEndTime(format(end, "yyyy-MM-dd'T'HH:mm"));
         setCategory(normalizeEventCategory(initialCategory || 'meetings'));
         setRoomId('');
-        setReminderOffsetMinutes(5);
+        setReminderOffsetMinutes(10);
         setGuestEmails([]);
         setNewGuestEmail('');
         setParticipantEmails([]);
@@ -130,7 +130,7 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
     
     // For tasks, default to 5 minutes if not specified, 
     // and ensure guest_emails includes currentUser if empty
-    const finalReminderOffset = normalizedCategory === 'reminders' ? 5 : getReminderOffsetMinutes(reminderOffsetMinutes);
+    const finalReminderOffset = getReminderOffsetMinutes(reminderOffsetMinutes);
     const finalGuestEmails = (normalizedCategory === 'reminders' && guestEmails.length === 0 && currentUser?.email) 
       ? [currentUser.email] 
       : guestEmails;
