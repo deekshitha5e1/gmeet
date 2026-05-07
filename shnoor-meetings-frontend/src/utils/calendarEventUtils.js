@@ -1,4 +1,4 @@
-const DEFAULT_REMINDER_OFFSET_MINUTES = 5;
+const DEFAULT_REMINDER_OFFSET_MINUTES = 10;
 
 export function normalizeEventCategory(category) {
   const normalized = `${category || 'meetings'}`.trim().toLowerCase();

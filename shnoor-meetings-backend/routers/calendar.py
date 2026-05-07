@@ -26,7 +26,7 @@ router = APIRouter(
     tags=["Calendar"]
 )
 
-DEFAULT_REMINDER_OFFSET_MINUTES = int((os.getenv("CALENDAR_REMINDER_OFFSET_MINUTES") or "5").strip() or "5")
+DEFAULT_REMINDER_OFFSET_MINUTES = int((os.getenv("CALENDAR_REMINDER_OFFSET_MINUTES") or "10").strip() or "10")
 
 
 def normalize_event_category(category: Optional[str]) -> str:
@@ -39,6 +39,10 @@ def normalize_event_category(category: Optional[str]) -> str:
         "reminders": "reminders",
         "remainder": "reminders",
         "remainders": "reminders",
+        "task": "reminders",
+        "tasks": "reminders",
+        "event": "meetings",
+        "events": "meetings",
     }
     return aliases.get(normalized, "meetings")
 
@@ -54,7 +58,7 @@ class CalendarEvent(BaseModel):
     end_time: datetime
     category: str = "meetings"
     room_id: Optional[str] = None
-    reminder_offset_minutes: Optional[int] = 5
+    reminder_offset_minutes: Optional[int] = 10
     location: Optional[str] = ""
     guest_permissions: Optional[str] = "{}"
     participant_emails: Optional[List[str]] = []
@@ -71,7 +75,7 @@ class CalendarEventCreate(BaseModel):
     end_time: datetime
     category: str = "meetings"
     room_id: Optional[str] = None
-    reminder_offset_minutes: Optional[int] = 5
+    reminder_offset_minutes: Optional[int] = 10
     location: Optional[str] = ""
     guest_permissions: Optional[str] = "{}"
     participant_emails: Optional[List[str]] = []

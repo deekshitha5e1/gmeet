@@ -16,7 +16,7 @@ from core.database import get_db_connection, get_dict_cursor, release_db_connect
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_REMINDER_OFFSET_MINUTES = int((os.getenv("CALENDAR_REMINDER_OFFSET_MINUTES") or "5").strip() or "5")
+DEFAULT_REMINDER_OFFSET_MINUTES = int((os.getenv("CALENDAR_REMINDER_OFFSET_MINUTES") or "10").strip() or "10")
 REMINDER_POLL_INTERVAL_SECONDS = int((os.getenv("CALENDAR_REMINDER_POLL_INTERVAL_SECONDS") or "60").strip() or "60")
 
 _reminder_thread: Optional[threading.Thread] = None
