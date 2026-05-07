@@ -89,6 +89,11 @@ export default function LobbyPage() {
           sessionStorage.setItem(`meeting_name_${roomId}`, currentUser?.name || storedName);
           if (normalizedCurrentEmail) sessionStorage.setItem(`meeting_email_${roomId}`, normalizedCurrentEmail);
           setResolvedRole('host');
+          
+          // Auto-join only for the Organizer (Host)
+          setTimeout(() => {
+            joinMeeting();
+          }, 500);
         } else {
           const invitedEmails = data.invited_emails || [];
           const isInvited = invitedEmails.some(e => e.toLowerCase() === normalizedCurrentEmail);
