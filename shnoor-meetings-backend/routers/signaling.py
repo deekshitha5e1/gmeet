@@ -378,13 +378,15 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
             continue
 
     except WebSocketDisconnect:
+        was_joined_connection = manager.is_joined_connection(meeting_id, websocket)
         manager.disconnect(websocket, meeting_id)
         manager.remove_waiting_request(meeting_id, cid)
         await sync_waiting_room(meeting_id)
-        await manager.broadcast_to_all(meeting_id, {
-            "type": "user-left",
-            "sender": cid
-        })
+        if was_joined_connection:
+            await manager.broadcast_to_all(meeting_id, {
+                "type": "user-left",
+                "sender": cid
+            })
         logger.info(f"WebSocket disconnected: meetingId={meeting_id}, clientId={cid}")
     except Exception as e:
         logger.error(f"WebSocket error in meeting {meeting_id} for client {cid}: {e}")

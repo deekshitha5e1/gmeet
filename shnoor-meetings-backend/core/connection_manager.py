@@ -88,6 +88,13 @@ class ConnectionManager:
                 # Optionally clear small rooms after some time
                 pass
 
+    def is_joined_connection(self, meeting_id: str, websocket: WebSocket):
+        if meeting_id not in self.rooms:
+            return False
+
+        room = self.rooms[meeting_id]
+        return room.get("host") == websocket or websocket in room.get("participants", [])
+
     def mark_joined(self, meeting_id: str, websocket: WebSocket, role: str, client_id: str, metadata: dict):
         """Moves a connection from 'connected' to 'joined' in the meeting room."""
         if meeting_id not in self.rooms:
