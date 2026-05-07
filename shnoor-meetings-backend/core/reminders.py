@@ -53,8 +53,8 @@ def _smtp_is_configured():
 def _get_resend_settings():
     return {
         "api_key": (os.getenv("RESEND_API_KEY") or "").strip(),
-        "from_email": (os.getenv("RESEND_FROM_EMAIL") or "").strip() or (os.getenv("SMTP_FROM_EMAIL") or "").strip(),
-        "from_name": (os.getenv("RESEND_FROM_NAME") or "").strip() or (os.getenv("SMTP_FROM_NAME") or "Shnoor Meetings").strip(),
+        "from_email": (os.getenv("RESEND_FROM_EMAIL") or "").strip().replace('"', '') or (os.getenv("SMTP_FROM_EMAIL") or "").strip().replace('"', ''),
+        "from_name": (os.getenv("RESEND_FROM_NAME") or "").strip().replace('"', '') or (os.getenv("SMTP_FROM_NAME") or "Shnoor Meetings").strip().replace('"', ''),
     }
 
 
@@ -338,8 +338,10 @@ def _send_via_resend(to_emails: list, subject: str, plain_text: str, html_body: 
     # Actually, Resend delivers to everyone in the 'to' list. 
     # To send individual emails with shared headers, we'd need to use 'to' for the recipient and 'cc' or just a custom header.
     # But for now, let's keep it simple for Resend.
+    from_name = settings['from_name']
+    from_email = settings['from_email']
     payload = {
-        "from": f"{settings['from_name']} <{settings['from_email']}>",
+        "from": f"{from_name} <{from_email}>" if from_name else from_email,
         "to": [individual_recipient] if individual_recipient else to_emails,
         "subject": subject,
         "text": plain_text,
