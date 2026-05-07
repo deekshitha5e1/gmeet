@@ -19,7 +19,7 @@ const VideoPlayer = React.memo(({
 }) => {
   const videoRef = useRef(null);
   const prevIsSharingRef = useRef(isSharingScreen);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [hasRenderableFrame, setHasRenderableFrame] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -28,14 +28,31 @@ const VideoPlayer = React.memo(({
     prevIsSharingRef.current = isSharingScreen;
 
     const shouldPlay = isVideoEnabled || isSharingScreen;
+    setHasRenderableFrame(false);
 
     if (video && stream && shouldPlay) {
+      const updateRenderableState = () => {
+        if (!isMounted) return;
+        setHasRenderableFrame(video.videoWidth > 0 && video.videoHeight > 0);
+      };
+
       if (video.srcObject !== stream || justStartedSharing) {
         video.srcObject = null;
         video.srcObject = stream;
       }
-      video.play().then(() => { if (isMounted) setIsLoaded(true); })
+      video.addEventListener('loadedmetadata', updateRenderableState);
+      video.addEventListener('playing', updateRenderableState);
+      video.addEventListener('resize', updateRenderableState);
+      updateRenderableState();
+      video.play().then(updateRenderableState)
         .catch(err => { if (err.name !== 'AbortError') console.warn('Video play failed', err); });
+
+      return () => {
+        isMounted = false;
+        video.removeEventListener('loadedmetadata', updateRenderableState);
+        video.removeEventListener('playing', updateRenderableState);
+        video.removeEventListener('resize', updateRenderableState);
+      };
     }
 
     return () => { isMounted = false; };
@@ -43,28 +60,31 @@ const VideoPlayer = React.memo(({
 
   // When screen sharing: show video as soon as stream exists (track frames arrive via replaceTrack)
   // When camera: require a live video track
-  const showVideo = isSharingScreen
+  const shouldAttemptVideo = isSharingScreen
     ? !!stream
     : isVideoEnabled && !!stream && stream.getVideoTracks().some(t => t.readyState === 'live');
+  const showVideo = shouldAttemptVideo && hasRenderableFrame;
 
   return (
     <div className={`relative overflow-hidden border group flex items-center justify-center transition-all duration-300 w-full aspect-video rounded-2xl bg-gray-800 ${
       isSpeaking ? 'border-white shadow-[0_0_20px_rgba(255,255,255,0.2)]' : 'border-gray-700/50'
     }`}>
       
-      {showVideo ? (
+      {shouldAttemptVideo && (
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted={isLocal}
-          className={`w-full h-full ${
+          className={`absolute inset-0 w-full h-full transition-opacity duration-200 ${
             (featured || isSharingScreen) ? 'object-contain' : 'object-cover'
           } ${
             (isLocal && !isSharingScreen) ? 'transform -scale-x-100' : ''
-          }`}
+          } ${showVideo ? 'opacity-100' : 'opacity-0'}`}
         />
-      ) : (
+      )}
+
+      {!showVideo && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
           <div className="relative flex items-center justify-center">
             {/* Pulsing Voice Circle */}

@@ -89,11 +89,6 @@ export default function LobbyPage() {
           sessionStorage.setItem(`meeting_name_${roomId}`, currentUser?.name || storedName);
           if (normalizedCurrentEmail) sessionStorage.setItem(`meeting_email_${roomId}`, normalizedCurrentEmail);
           setResolvedRole('host');
-          
-          // Auto-join only for the Organizer (Host)
-          setTimeout(() => {
-            joinMeeting();
-          }, 500);
         } else {
           const invitedEmails = data.invited_emails || [];
           const isInvited = invitedEmails.some(e => e.toLowerCase() === normalizedCurrentEmail);
@@ -309,7 +304,7 @@ export default function LobbyPage() {
               <div className="space-y-4 w-full">
                 <button onClick={joinMeeting} disabled={!participantName.trim() || !isWSConnected}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3.5 rounded-full shadow-lg shadow-blue-100 transition-all transform active:scale-95 text-md flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-                  <LogIn size={20} /> {isWSConnected ? 'Join Now' : 'Connecting...'}
+                  <LogIn size={20} /> {isWSConnected ? 'Join the meet' : 'Connecting...'}
                 </button>
 
                 <button onClick={() => setShowInviteModal(true)}
