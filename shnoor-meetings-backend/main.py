@@ -93,8 +93,8 @@ async def global_exception_handler(request, exc):
     return response
 
 # Include routers
-app.include_router(meeting.router)
 app.include_router(signaling.router)
+app.include_router(meeting.router)
 app.include_router(calendar.router)
 app.include_router(auth.router)
 

@@ -55,8 +55,8 @@ export default function LobbyPage() {
     admitParticipant,
     denyParticipant,
     sendSignalingMessage,
-    localClientId,
     isWSConnected,
+    requestToJoin,
   } = useWebRTC(roomId, { acquireMedia: false, autoJoin: false, initialRole: resolvedRole });
 
   // ── Toast helper ─────────────────────────────────────────────────────────────
@@ -81,20 +81,34 @@ export default function LobbyPage() {
             (hostEmail && normalizedCurrentEmail === hostEmail)
           )
         );
-        if (isBackendHost) {
+        const effectivelyHost = isBackendHost || isHost;
+        if (effectivelyHost) {
           const hostValue = normalizedCurrentEmail || `id:${currentUser?.meetingUserId}`;
           localStorage.setItem(`meeting_host_${roomId}`, hostValue);
           sessionStorage.setItem(`meeting_role_${roomId}`, 'host');
           sessionStorage.setItem(`meeting_name_${roomId}`, currentUser?.name || storedName);
           if (normalizedCurrentEmail) sessionStorage.setItem(`meeting_email_${roomId}`, normalizedCurrentEmail);
           setResolvedRole('host');
-        } else if (!storedHostFlag) {
-          sessionStorage.setItem(`meeting_role_${roomId}`, 'participant');
-          if (normalizedCurrentEmail) sessionStorage.setItem(`meeting_email_${roomId}`, normalizedCurrentEmail);
-          setResolvedRole('participant');
+        } else {
+          const invitedEmails = data.invited_emails || [];
+          const isInvited = invitedEmails.some(e => e.toLowerCase() === normalizedCurrentEmail);
+          
+          if (isInvited) {
+            sessionStorage.setItem(`meeting_role_${roomId}`, 'participant');
+            sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
+            if (normalizedCurrentEmail) sessionStorage.setItem(`meeting_email_${roomId}`, normalizedCurrentEmail);
+            setResolvedRole('participant');
+            setTimeout(() => {
+              joinMeeting();
+            }, 800);
+          } else if (!storedHostFlag) {
+            sessionStorage.setItem(`meeting_role_${roomId}`, 'participant');
+            if (normalizedCurrentEmail) sessionStorage.setItem(`meeting_email_${roomId}`, normalizedCurrentEmail);
+            setResolvedRole('participant');
+          }
         }
       } catch (err) {
-        console.error('Failed to verify host status:', err);
+        console.error('Failed to verify host/invitation status:', err);
       }
     };
     verify();
@@ -191,13 +205,7 @@ export default function LobbyPage() {
     setParticipantName(name);
     sessionStorage.setItem(`meeting_name_${roomId}`, name);
     setIsWaiting(true);
-    sendSignalingMessage({
-      type: 'ask_to_join',
-      user_id: localClientId,
-      name,
-      picture: currentUser?.picture || null,
-      requested_at: new Date().toISOString(),
-    });
+    requestToJoin(name);
     showToast('Asking to join… please wait for the host.');
   };
 
@@ -283,7 +291,7 @@ export default function LobbyPage() {
         </div>
 
         {/* Right: Join Panel */}
-        <div className="flex-1 w-full max-w-sm flex flex-col items-center justify-center space-y-6">
+        <div className="flex-1 w-full max-sm flex flex-col items-center justify-center space-y-6">
           <h2 className="text-3xl font-normal text-gray-800">Ready to join?</h2>
 
           <div className="w-full">
@@ -340,9 +348,10 @@ export default function LobbyPage() {
               </div>
             ) : (
               <>
-                <button onClick={handleAskToJoin} disabled={isWaiting || !participantName.trim() || !isWSConnected}
+                <button onClick={sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true' ? joinMeeting : handleAskToJoin} 
+                  disabled={isWaiting || !participantName.trim() || !isWSConnected}
                   className={`w-full font-semibold py-3.5 rounded-full shadow-lg transition-all transform active:scale-95 text-md ${isWaiting ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-100'} disabled:opacity-50 disabled:cursor-not-allowed`}>
-                  {isWaiting ? 'Asking to join…' : (isWSConnected ? 'Ask to join' : 'Connecting...')}
+                  {sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true' ? (isWSConnected ? 'Join meeting' : 'Connecting...') : (isWaiting ? 'Asking to join…' : (isWSConnected ? 'Ask to join' : 'Connecting...'))}
                 </button>
 
                 {isWaiting && (

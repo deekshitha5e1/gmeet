@@ -95,12 +95,12 @@ def _format_dt(value) -> str:
         return str(value)
 
 
-def _get_meet_link(event: dict) -> str:
+def _get_meet_link(event: dict, role: str = "participant") -> str:
     room_id = event.get("room_id")
     if not room_id:
         return ""
     frontend_url = (os.getenv("FRONTEND_URL") or FRONTEND_URL).rstrip("/")
-    return f"{frontend_url}/meeting/{room_id}?role=participant"
+    return f"{frontend_url}/meeting/{room_id}?role={role}"
 
 
 def _parse_email_list(raw) -> list:
@@ -415,7 +415,7 @@ def send_host_reminder_email(event: dict):
 
     guest_emails = _parse_email_list(event.get("guest_emails"))
     participant_emails = _parse_email_list(event.get("participant_emails"))
-    meet_link = _get_meet_link(event)
+    meet_link = _get_meet_link(event, role="host")
     reminder_mins = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
 
     plain_text, html_body = _build_email_html(
@@ -454,7 +454,7 @@ def send_guest_reminder_email(event: dict, guest_email: str):
 
     guest_emails = _parse_email_list(event.get("guest_emails"))
     participant_emails = _parse_email_list(event.get("participant_emails"))
-    meet_link = _get_meet_link(event)
+    meet_link = _get_meet_link(event, role="participant")
     reminder_mins = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
 
     plain_text, html_body = _build_email_html(
@@ -495,7 +495,7 @@ def send_host_invitation_email(event: dict):
 
     guest_emails = _parse_email_list(event.get("guest_emails"))
     participant_emails = _parse_email_list(event.get("participant_emails"))
-    meet_link = _get_meet_link(event)
+    meet_link = _get_meet_link(event, role="host")
     reminder_mins = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
 
     plain_text, html_body = _build_email_html(
@@ -530,7 +530,7 @@ def send_guest_invitation_email(event: dict, guest_email: str):
 
     guest_emails = _parse_email_list(event.get("guest_emails"))
     participant_emails = _parse_email_list(event.get("participant_emails"))
-    meet_link = _get_meet_link(event)
+    meet_link = _get_meet_link(event, role="participant")
     reminder_mins = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
 
     plain_text, html_body = _build_email_html(
@@ -583,7 +583,7 @@ def send_invitation_emails(event: dict):
     if len(all_recipients) > 1:
         intro_line = f"You are invited to a {category_label.lower()} scheduled by <strong>{host_display}</strong>."
 
-    meet_link = _get_meet_link(event)
+    meet_link = _get_meet_link(event, role="host") # Base link for organizer, appended for guests below
     reminder_mins = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
 
     plain_text, html_body = _build_email_html(

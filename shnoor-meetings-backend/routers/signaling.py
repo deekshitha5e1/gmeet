@@ -5,9 +5,13 @@ from core.connection_manager import manager
 from core.database import (
     ensure_meeting_record,
     get_meeting_record,
+    get_db_connection,
+    get_db_type,
+    get_dict_cursor,
     get_or_create_user,
     mark_participant_left,
     normalize_uuid_or_none,
+    release_db_connection,
     save_chat_message,
     upsert_participant_record,
 )
@@ -22,6 +26,34 @@ async def sync_waiting_room(meeting_id: str):
         "type": "waiting-room-sync",
         "requests": requests,
     })
+
+@router.get("/api/meetings/{meeting_id}/waiting-room")
+async def get_waiting_room(meeting_id: str):
+    return {"requests": manager.get_waiting_requests(meeting_id)}
+
+@router.post("/api/meetings/{meeting_id}/waiting-room/{client_id}/admit")
+async def admit_waiting_participant(meeting_id: str, client_id: str):
+    manager.remove_waiting_request(meeting_id, client_id)
+    manager.add_accepted_participant(meeting_id, client_id)
+    await sync_waiting_room(meeting_id)
+    await manager.send_to_client(meeting_id, client_id, {
+        "type": "accepted",
+        "sender": "host",
+        "meetingId": meeting_id,
+        "admitted": True
+    })
+    return {"ok": True}
+
+@router.post("/api/meetings/{meeting_id}/waiting-room/{client_id}/deny")
+async def deny_waiting_participant(meeting_id: str, client_id: str):
+    manager.remove_waiting_request(meeting_id, client_id)
+    await sync_waiting_room(meeting_id)
+    await manager.send_to_client(meeting_id, client_id, {
+        "type": "deny",
+        "sender": "host",
+        "meetingId": meeting_id
+    })
+    return {"ok": True}
 
 def is_invited_to_meeting(meeting_id: str, email: str) -> bool:
     """Check if the given email is a host, guest, or participant for the meeting."""
@@ -51,32 +83,39 @@ def is_invited_to_meeting(meeting_id: str, email: str) -> bool:
         if not row:
             return False
             
+        logger.info(f"Checking invitation for {email} in meeting {meeting_id}")
         # Check Host
         if row.get("host_email") and row["host_email"].strip().lower() == email:
+            logger.info(f"User {email} is the HOST of {meeting_id}")
             return True
             
         # Check Guests
         guests = row.get("guest_emails")
         if guests:
             try:
-                guest_list = json.loads(guests)
+                guest_list = json.loads(guests) if isinstance(guests, str) else guests
                 if any(g.strip().lower() == email for g in guest_list):
+                    logger.info(f"User {email} is an invited GUEST of {meeting_id}")
                     return True
-            except:
+            except Exception as e:
+                logger.warning(f"Error parsing guest_emails for {meeting_id}: {e}")
                 # Fallback for old comma-separated format
-                if any(g.strip().lower() == email for g in guests.split(",")):
+                if any(g.strip().lower() == email for g in str(guests).split(",")):
+                    logger.info(f"User {email} (legacy comma-sep) is an invited GUEST of {meeting_id}")
                     return True
                     
         # Check Participants
         participants = row.get("participant_emails")
         if participants:
             try:
-                participant_list = json.loads(participants)
+                participant_list = json.loads(participants) if isinstance(participants, str) else participants
                 if any(p.strip().lower() == email for p in participant_list):
+                    logger.info(f"User {email} is an invited PARTICIPANT of {meeting_id}")
                     return True
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Error parsing participant_emails for {meeting_id}: {e}")
                 
+        logger.info(f"User {email} NOT found in invitation list for {meeting_id}")
         return False
     except Exception as e:
         logger.error(f"Error checking invitation for {email} in {meeting_id}: {e}")
@@ -102,16 +141,19 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
         cid = str(uuid.uuid4())
         
     await manager.connect(websocket, meeting_id, role, cid)
-
-    # Auto-admit if email is provided and invited
-    if role == "participant" and email and is_invited_to_meeting(meeting_id, email):
-        logger.info(f"Auto-admitting invited participant on connect: {email}")
-        manager.add_accepted_participant(meeting_id, cid)
-        # Tell the lobby they are admitted immediately
-        await websocket.send_json({
-            "type": "accepted",
-            "roomId": meeting_id
-        })
+    
+    # Auto-admit if user is invited via calendar
+    if role == "participant" and email:
+        if is_invited_to_meeting(meeting_id, email):
+            logger.info(f"Auto-admitting invited participant {email} to meeting {meeting_id}")
+            manager.add_accepted_participant(meeting_id, cid)
+            # Notify the client they are accepted
+            await websocket.send_json({
+                "type": "accepted",
+                "meetingId": meeting_id,
+                "admitted": True,
+                "reason": "invited"
+            })
 
     try:
         while True:
@@ -123,31 +165,52 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
                 role = "host"
                 manager.promote_to_host(meeting_id, websocket, cid)
                 await sync_waiting_room(meeting_id)
+                # Send current room state to host so they see who is already there
+                room_metadata = manager.get_room_metadata(meeting_id)
+                await websocket.send_json({
+                    "type": "room-state",
+                    "participants": room_metadata
+                })
                 continue
 
             # --- Logging join-request received ---
             if msg_type in ["join-request", "ask_to_join"]:
-                logger.info(f"join-request received from {cid} for meeting {meeting_id}")
-                
                 user_data = data.get("user") or {}
                 name = user_data.get("name") or data.get("name") or "Participant"
-                email = user_data.get("email") or data.get("email")
+                req_email = user_data.get("email") or data.get("email") or email
+                picture = user_data.get("picture") or data.get("picture")
                 
-                manager.add_waiting_request(meeting_id, cid, name, email)
+                logger.info(f"join-request from {cid} ({name}) for meeting {meeting_id}")
+                manager.add_waiting_request(meeting_id, cid, name, req_email, picture)
                 
-                # Send incoming-join-request ONLY to the host
-                success = await manager.send_to_host(meeting_id, {
+                join_msg = {
                     "type": "incoming-join-request",
                     "sender": cid,
                     "user": {
                         "id": cid,
                         "name": name,
-                        "email": email
+                        "email": req_email,
+                        "picture": picture,
                     }
-                })
+                }
+                
+                # Send incoming-join-request ONLY to the host
+                success = await manager.send_to_host(meeting_id, join_msg)
+                
+                # Fallback: if no host found via metadata, try direct WS from rooms structure
+                if not success and meeting_id in manager.rooms:
+                    h_ws = manager.rooms[meeting_id].get("host")
+                    if h_ws:
+                        try:
+                            await h_ws.send_json(join_msg)
+                            success = True
+                            logger.info(f"join-request sent to host WS fallback for {meeting_id}")
+                        except: pass
                 
                 if success:
                     logger.info(f"incoming-join-request sent to host for meeting {meeting_id}")
+                else:
+                    logger.warning(f"Could not find any host to send join-request for {meeting_id}")
                 
                 await sync_waiting_room(meeting_id)
                 continue
@@ -169,12 +232,11 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
                 
                 # Security check for participants
                 if role == "participant":
-                    # Auto-admit if they are in the guest/participant list
-                    if email and is_invited_to_meeting(meeting_id, email):
-                        logger.info(f"Auto-admitting invited participant: {email}")
+                    invited = is_invited_to_meeting(meeting_id, email)
+                    if invited:
                         manager.add_accepted_participant(meeting_id, cid)
                         client_admitted = True
-
+                        
                     if not client_admitted and not manager.is_participant_accepted(meeting_id, cid):
                         logger.warning(f"join-room BLOCKED: {cid} not admitted to {meeting_id}")
                         await websocket.send_json({
@@ -204,9 +266,8 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
                 is_video_enabled = data.get("isVideoEnabled", True)
                 picture = data.get("picture")
                 
-                manager.update_metadata(meeting_id, websocket, {
+                manager.mark_joined(meeting_id, websocket, role, cid, {
                     "name": name, 
-                    "role": role,
                     "picture": picture,
                     "isAudioEnabled": is_audio_enabled,
                     "isVideoEnabled": is_video_enabled
@@ -243,19 +304,28 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
                     response_type = "accepted" if msg_type in ["admit", "accept_user"] else "deny"
                     await manager.send_to_client(meeting_id, target_id, {
                         "type": response_type,
-                        "sender": cid
+                        "sender": cid,
+                        "meetingId": meeting_id,
+                        "admitted": response_type == "accepted"
                     })
                 continue
 
             if msg_type == "participant-update":
                 manager.update_metadata(meeting_id, websocket, data)
-                # Fall through to default broadcast below
+                # Only broadcast update if they have actually joined
+                if cid in manager.user_records.get(meeting_id, {}):
+                    await manager.broadcast_to_all(meeting_id, {"sender": cid, **data})
+                continue
             
-            # Default broadcast for all other signaling (RTC offers/answers)
-            await manager.broadcast_to_all(meeting_id, {
-                "sender": cid,
-                **data
-            })
+            # Default broadcast for RTC signaling - only if sender is admitted/joined
+            if manager.is_participant_accepted(meeting_id, cid) or role == "host":
+                await manager.broadcast_to_all(meeting_id, {
+                    "sender": cid,
+                    **data
+                })
+            else:
+                logger.debug(f"Suppressing broadcast from unjoined client {cid}")
+            continue
 
     except WebSocketDisconnect:
         manager.disconnect(websocket, meeting_id)

@@ -5,7 +5,7 @@ import {
   getPreferredMediaConstraints,
   upsertCallHistoryEntry,
 } from '../utils/meetingUtils';
-import { buildWebSocketUrl } from '../utils/api';
+import { buildApiUrl, buildWebSocketUrl } from '../utils/api';
 import { getCurrentUser } from '../utils/currentUser';
 
 const ICE_SERVERS = {
@@ -16,20 +16,16 @@ const ICE_SERVERS = {
 };
 
 function getStableClientId(roomId) {
-  const currentUser = getCurrentUser();
-  if (currentUser?.meetingUserId) {
-    sessionStorage.setItem(`meeting_client_${roomId}`, currentUser.meetingUserId);
-    return currentUser.meetingUserId;
-  }
-
   const storageKey = `meeting_client_${roomId}`;
   const existingId = sessionStorage.getItem(storageKey);
+  const currentUser = getCurrentUser();
 
-  if (existingId) {
+  if (existingId && existingId !== currentUser?.meetingUserId) {
     return existingId;
   }
 
-  const nextId = crypto.randomUUID();
+  const userPrefix = currentUser?.meetingUserId ? currentUser.meetingUserId.slice(0, 8) : 'guest';
+  const nextId = `${userPrefix}-${crypto.randomUUID()}`;
   sessionStorage.setItem(storageKey, nextId);
   return nextId;
 }
@@ -43,7 +39,7 @@ function getDisplayName(roomId, isHost) {
   }
 
   const currentUser = getCurrentUser();
-  const generatedName = currentUser?.name || (isHost ? 'Host' : `Participant ${getStableClientId(roomId).slice(-4).toUpperCase()}`);
+  const generatedName = currentUser?.name || (isHost ? 'Host' : `Guest ${getStableClientId(roomId).slice(-4).toUpperCase()}`);
   sessionStorage.setItem(storageKey, generatedName);
   return generatedName;
 }
@@ -79,18 +75,22 @@ export function useWebRTC(roomId, options = {}) {
     storedHostEmail === `id:${getCurrentUser()?.meetingUserId}`
   );
 
-  const computeIsHost = useCallback(() => (
-    initialRole === 'host' ||
-    (
-      initialRole !== 'participant' &&
-      sessionStorage.getItem(`meeting_role_${roomId}`) === 'host'
-    ) ||
-    (
-      initialRole !== 'participant' &&
-      !sessionStorage.getItem(`meeting_role_${roomId}`) &&
+  const computeIsHost = useCallback(() => {
+    const roleInSession = sessionStorage.getItem(`meeting_role_${roomId}`);
+    const hostInLocal = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
+    const currentUser = getCurrentUser();
+    const myEmail = (currentUser?.email || '').trim().toLowerCase();
+    const myId = currentUser?.meetingUserId;
+
+    return (
+      initialRole === 'host' ||
+      roleInSession === 'host' ||
+      (hostInLocal && myEmail && hostInLocal === myEmail) ||
+      (hostInLocal && myId && hostInLocal === `id:${myId}`) ||
       hasStoredHostAccess
-    )
-  ), [hasStoredHostAccess, initialRole, roomId]);
+    );
+  }, [hasStoredHostAccess, initialRole, roomId]);
+
   const [isHostState, setIsHostState] = useState(() => computeIsHost());
   const isHost = useRef(isHostState);
   const clientId = useRef(getStableClientId(roomId));
@@ -193,7 +193,7 @@ export function useWebRTC(roomId, options = {}) {
     const user = currentUser.current;
     const payload = {
       type: 'join-room',
-      user_id: clientId.current,
+      user_id: user?.meetingUserId || clientId.current,
       firebase_uid: user?.firebaseUid || null,
       name: sessionStorage.getItem(`meeting_name_${roomId}`) || user?.name || 'Participant',
       email: user?.email || sessionStorage.getItem(`meeting_email_${roomId}`) || null,
@@ -458,7 +458,9 @@ export function useWebRTC(roomId, options = {}) {
       case 'join_request':
       case 'incoming-join-request':
         console.log('[WebRTC] Join request received:', data);
-        if (isHost.current) {
+        // Fallback: If we get a join request, we should probably check if we ARE the host 
+        // even if the ref is slightly behind, or just trust the backend routed it to us for a reason.
+        if (isHost.current || computeIsHost()) {
           const requester = data.user || data;
           const reqId = requester.id || peerId;
 
@@ -467,7 +469,7 @@ export function useWebRTC(roomId, options = {}) {
               return prev;
             }
 
-            console.log('[WebRTC] Adding join request to state:', reqId);
+            console.log('[WebRTC] Adding join request to state:', reqId, requester.name);
             return [
               ...prev,
               {
@@ -484,7 +486,7 @@ export function useWebRTC(roomId, options = {}) {
 
       case 'waiting-room-sync':
         console.log('[WebRTC] Waiting room sync received:', data.requests);
-        if (isHost.current) {
+        if (isHost.current || computeIsHost()) {
           setActiveJoinRequests(Array.isArray(data.requests) ? data.requests : []);
         }
         break;
@@ -641,15 +643,29 @@ export function useWebRTC(roomId, options = {}) {
     };
   }, [acquireMedia, autoJoin, roomId, endSessionTracking]);
 
-  const admitParticipant = useCallback((participantId) => {
+  const admitParticipant = useCallback(async (participantId) => {
     sendSignalingMessage({ type: 'accept_user', target: participantId });
     setActiveJoinRequests((prev) => prev.filter((request) => request.id !== participantId));
-  }, [sendSignalingMessage]);
+    try {
+      await fetch(buildApiUrl(`/api/meetings/${roomId}/waiting-room/${participantId}/admit`), {
+        method: 'POST',
+      });
+    } catch (error) {
+      console.warn('[WebRTC] Admit fallback failed:', error);
+    }
+  }, [roomId, sendSignalingMessage]);
 
-  const denyParticipant = useCallback((participantId) => {
+  const denyParticipant = useCallback(async (participantId) => {
     sendSignalingMessage({ type: 'deny', target: participantId });
     setActiveJoinRequests((prev) => prev.filter((request) => request.id !== participantId));
-  }, [sendSignalingMessage]);
+    try {
+      await fetch(buildApiUrl(`/api/meetings/${roomId}/waiting-room/${participantId}/deny`), {
+        method: 'POST',
+      });
+    } catch (error) {
+      console.warn('[WebRTC] Deny fallback failed:', error);
+    }
+  }, [roomId, sendSignalingMessage]);
 
   const requestToJoin = useCallback((name = displayName.current) => {
     sessionStorage.setItem(`meeting_name_${roomId}`, name);
@@ -664,10 +680,39 @@ export function useWebRTC(roomId, options = {}) {
       user: {
         id: clientId.current,
         name,
-        email: currentUser.current?.email || null
+        email: currentUser.current?.email || sessionStorage.getItem(`meeting_email_${roomId}`) || null,
+        picture: currentUser.current?.picture || null
       }
     });
   }, [roomId, sendSignalingMessage]);
+
+  const refreshWaitingRoom = useCallback(async () => {
+    if (!isHost.current && !computeIsHost()) {
+      return;
+    }
+
+    try {
+      const response = await fetch(buildApiUrl(`/api/meetings/${roomId}/waiting-room`));
+      if (!response.ok) {
+        return;
+      }
+
+      const data = await response.json();
+      setActiveJoinRequests(Array.isArray(data.requests) ? data.requests : []);
+    } catch (error) {
+      console.warn('[WebRTC] Failed to refresh waiting room:', error);
+    }
+  }, [computeIsHost, roomId]);
+
+  useEffect(() => {
+    if (!isHostState) {
+      return undefined;
+    }
+
+    refreshWaitingRoom();
+    const intervalId = window.setInterval(refreshWaitingRoom, 2000);
+    return () => window.clearInterval(intervalId);
+  }, [isHostState, refreshWaitingRoom]);
 
   const toggleVideo = useCallback(async () => {
     // Check for a real camera track (not canvas dummy) in originalStream

@@ -22,6 +22,21 @@ const MeetingRoom = () => {
   // The shareable invite link always goes through the lobby so role detection works.
   const meetingUrl = `${window.location.origin}/meeting/${roomId}`;
 
+  // Role detection for initial hook state
+  const currentUser = useMemo(() => getCurrentUser(), []);
+  const params = new URLSearchParams(window.location.search);
+  const emailFromUrl = params.get('email')?.toLowerCase();
+  
+  const myEmail = (emailFromUrl || sessionStorage.getItem(`meeting_email_${roomId}`) || currentUser?.email || '').trim().toLowerCase();
+  const myId = currentUser?.meetingUserId;
+  const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
+  const storedRole = sessionStorage.getItem(`meeting_role_${roomId}`);
+
+  const iAmHost =
+    storedRole === 'host' ||
+    (myEmail && storedHostEmail && myEmail === storedHostEmail) ||
+    (myId && storedHostEmail === `id:${myId}`);
+
   // WebRTC Hook - Optimized Return
   const {
     localStream,
@@ -45,24 +60,17 @@ const MeetingRoom = () => {
     localClientId,
     getPeerConnection,
     cameraStream
-  } = useWebRTC(roomId);
+  } = useWebRTC(roomId, { initialRole: iAmHost ? 'host' : 'participant' });
 
   // ── Admission guard ──────────────────────────────────────────────────────────
   // If someone navigates directly to /room/:id without going through the lobby
   // (i.e. not admitted and not the host), send them back to the lobby.
   useEffect(() => {
     const admitted = sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true';
-    const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
-    const currentUser = getCurrentUser();
-    const myEmail = (currentUser?.email || '').trim().toLowerCase();
-    const myId = currentUser?.meetingUserId;
-    const iAmHost =
-      (myEmail && storedHostEmail && myEmail === storedHostEmail) ||
-      (myId && storedHostEmail === `id:${myId}`);
     if (!admitted && !iAmHost) {
       navigate(`/meeting/${roomId}`, { replace: true });
     }
-  }, [roomId, navigate]);
+  }, [roomId, navigate, iAmHost]);
 
   // Picture-in-Picture Hook
   const {
@@ -111,8 +119,6 @@ const MeetingRoom = () => {
     recognition.start();
     return () => recognition.stop();
   }, [isCaptionsOn]);
-
-  const currentUser = useMemo(() => getCurrentUser(), []);
 
   return (
     <div className="h-screen w-full bg-gray-950 flex flex-col overflow-hidden text-white font-sans">
@@ -223,7 +229,7 @@ const MeetingRoom = () => {
                     onClick={() => handleAdmit(req.id)}
                     className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-colors"
                   >
-                    Admit
+                    Accept
                   </button>
                   <button
                     onClick={() => handleDeny(req.id)}

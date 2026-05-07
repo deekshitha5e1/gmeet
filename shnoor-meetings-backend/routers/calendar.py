@@ -290,7 +290,7 @@ async def create_event(event: CalendarEventCreate):
                 "participant_emails": participant_emails_json,
                 "location": event.location
             }
-            print(f"Triggering immediate invitation emails for {event_id}. Recipients: {all_recipients}")
+            print(f"Triggering immediate invitation emails for {event_id}. Recipients: {all_emails}")
             threading.Thread(
                 target=send_invitation_emails,
                 args=(event_dict,),
