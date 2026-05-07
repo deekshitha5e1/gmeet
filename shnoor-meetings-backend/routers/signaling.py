@@ -355,7 +355,7 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
             if msg_type == "participant-update":
                 manager.update_metadata(meeting_id, websocket, data)
                 # Only broadcast update if they have actually joined
-                if cid in manager.user_records.get(meeting_id, {}):
+                if cid in manager.user_records.get(meeting_id, {}).values():
                     await manager.broadcast_to_all(meeting_id, {"sender": cid, **data})
                 continue
             
