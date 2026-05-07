@@ -8,8 +8,9 @@ import ChatPanel from '../components/ChatPanel';
 import ParticipantsList from '../components/ParticipantsList';
 import PipPopup from '../components/PipPopup';
 import InPagePip from '../components/InPagePip';
-import { Video, Maximize2, Copy, Check } from 'lucide-react';
+import { Video, Maximize2, Copy, Check, UserPlus, X, Mail, Loader2 } from 'lucide-react';
 import { getCurrentUser } from '../utils/currentUser';
+import { buildApiUrl } from '../utils/api';
 
 const MeetingRoom = () => {
   const { id: roomId } = useParams();
@@ -18,6 +19,10 @@ const MeetingRoom = () => {
   const [isCaptionsOn, setIsCaptionsOn] = useState(false);
   const [captions, setCaptions] = useState('');
   const [isCopied, setIsCopied] = useState(false);
+  const [showAddUsers, setShowAddUsers] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteStatus, setInviteStatus] = useState({ type: '', message: '' });
+  const [isSendingInvite, setIsSendingInvite] = useState(false);
 
   // The shareable invite link always goes through the lobby so role detection works.
   const meetingUrl = `${window.location.origin}/meeting/${roomId}`;
@@ -59,6 +64,7 @@ const MeetingRoom = () => {
     mediaError,
     localClientId,
     getPeerConnection,
+    displayName: meetingDisplayName,
     cameraStream
   } = useWebRTC(roomId, { initialRole: iAmHost ? 'host' : 'participant' });
 
@@ -103,6 +109,40 @@ const MeetingRoom = () => {
     setTimeout(() => setIsCopied(false), 2000);
   }, [meetingUrl]);
 
+  const handleSendInvite = useCallback(async (event) => {
+    event.preventDefault();
+    const email = inviteEmail.trim().toLowerCase();
+    if (!email) {
+      setInviteStatus({ type: 'error', message: 'Enter an email address.' });
+      return;
+    }
+
+    setIsSendingInvite(true);
+    setInviteStatus({ type: '', message: '' });
+    try {
+      const response = await fetch(buildApiUrl(`/api/meetings/${roomId}/invite-user`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          host_name: currentUser?.name || 'Host',
+          host_email: currentUser?.email || sessionStorage.getItem(`meeting_email_${roomId}`) || '',
+          frontend_origin: window.location.origin,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to send invite.');
+      }
+      setInviteStatus({ type: 'success', message: `Invite sent to ${email}.` });
+      setInviteEmail('');
+    } catch (error) {
+      setInviteStatus({ type: 'error', message: error.message || 'Failed to send invite.' });
+    } finally {
+      setIsSendingInvite(false);
+    }
+  }, [currentUser?.email, currentUser?.name, inviteEmail, roomId]);
+
   // Captions Logic - Optimized to avoid render blocking
   useEffect(() => {
     if (!isCaptionsOn) return;
@@ -146,6 +186,19 @@ const MeetingRoom = () => {
           <div className="md:hidden h-4 w-[1px] bg-gray-800 mx-2" />
           <span className="md:hidden text-xs text-gray-500 font-mono select-all cursor-pointer hover:text-gray-300">ID: {roomId}</span>
         </div>
+
+        {isHost && (
+          <button
+            onClick={() => {
+              setShowAddUsers(true);
+              setInviteStatus({ type: '', message: '' });
+            }}
+            className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-950/20 transition hover:bg-blue-500 active:scale-95"
+          >
+            <UserPlus size={16} />
+            Add users
+          </button>
+        )}
       </header>
 
       <main className="flex-1 flex overflow-hidden relative">
@@ -177,7 +230,7 @@ const MeetingRoom = () => {
             isVideoEnabled={isVideoEnabled}
             isHandRaised={isHandRaised}
             isSharingScreen={isSharingScreen}
-            displayName={currentUser?.name || 'Me'}
+            displayName={meetingDisplayName || currentUser?.name || 'Me'}
             getPeerConnection={getPeerConnection}
           />
 
@@ -296,6 +349,61 @@ const MeetingRoom = () => {
           onLeaveCall={handleLeave}
           onMaximize={exitPip}
         />
+      )}
+
+      {showAddUsers && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-gray-700 bg-gray-900 p-6 text-white shadow-2xl">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold">Add users</h2>
+                <p className="mt-1 text-sm text-gray-400">Send an invite link to join through the waiting room.</p>
+              </div>
+              <button
+                onClick={() => setShowAddUsers(false)}
+                className="rounded-full p-2 text-gray-400 transition hover:bg-gray-800 hover:text-white"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSendInvite} className="space-y-4">
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-gray-300">Email address</span>
+                <div className="flex items-center gap-2 rounded-xl border border-gray-700 bg-gray-950 px-3 py-2 focus-within:border-blue-500">
+                  <Mail size={16} className="text-gray-500" />
+                  <input
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(event) => setInviteEmail(event.target.value)}
+                    placeholder="person@example.com"
+                    className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-gray-600"
+                    autoFocus
+                  />
+                </div>
+              </label>
+
+              {inviteStatus.message && (
+                <div className={`rounded-xl px-3 py-2 text-sm ${
+                  inviteStatus.type === 'success'
+                    ? 'border border-green-500/30 bg-green-500/10 text-green-200'
+                    : 'border border-red-500/30 bg-red-500/10 text-red-200'
+                }`}>
+                  {inviteStatus.message}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isSendingInvite || !inviteEmail.trim()}
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isSendingInvite ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} />}
+                {isSendingInvite ? 'Sending...' : 'Add'}
+              </button>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

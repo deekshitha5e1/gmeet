@@ -6,8 +6,13 @@ import socket
 import threading
 import urllib.request
 import urllib.error
+<<<<<<< Updated upstream
 from urllib.parse import urlencode
 from datetime import datetime
+=======
+import json
+from datetime import datetime, timedelta, timezone
+>>>>>>> Stashed changes
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
@@ -76,7 +81,10 @@ def _get_missing_resend_keys():
 # ─── Time Formatting ──────────────────────────────────────────────────────────
 
 def _format_dt(value) -> str:
+<<<<<<< Updated upstream
     from datetime import timedelta
+=======
+>>>>>>> Stashed changes
     if not value:
         return "—"
     try:
@@ -84,6 +92,7 @@ def _format_dt(value) -> str:
             dt = value
         else:
             dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+<<<<<<< Updated upstream
         ist_offset = timedelta(hours=5, minutes=30)
         if dt.tzinfo is None:
             ist_dt = dt + ist_offset
@@ -93,6 +102,17 @@ def _format_dt(value) -> str:
         return ist_dt.strftime("%B %d, %Y at %I:%M %p IST")
     except Exception as e:
         logger.warning("Error formatting date %s: %s", value, e)
+=======
+            
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+            
+        ist_tz = timezone(timedelta(hours=5, minutes=30), name="IST")
+        dt_ist = dt.astimezone(ist_tz)
+        
+        return dt_ist.strftime("%B %d, %Y at %I:%M %p IST")
+    except Exception:
+>>>>>>> Stashed changes
         return str(value)
 
 

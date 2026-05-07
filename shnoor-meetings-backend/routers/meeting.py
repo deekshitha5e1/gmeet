@@ -11,6 +11,7 @@ from core.database import (
     get_or_create_user,
     release_db_connection,
 )
+from core.reminders import _dispatch_single_email
 
 router = APIRouter(
     prefix="/api/meetings",
@@ -30,6 +31,12 @@ class CreateMeetingRequest(BaseModel):
 
 class JoinMeetingRequest(BaseModel):
     room_id: str
+
+class InviteUserRequest(BaseModel):
+    email: str
+    host_name: str | None = None
+    host_email: str | None = None
+    frontend_origin: str | None = None
 
 def _parse_email_list(raw):
     if not raw:
@@ -135,3 +142,61 @@ async def check_meeting(room_id: str):
             "invited_emails": list(set(e for e in invited_emails if e and e != host_email))
         }
     return {"room_id": room_id, "valid": False}
+
+@router.post("/{room_id}/invite-user")
+async def invite_user_to_meeting(room_id: str, payload: InviteUserRequest):
+    if not room_id:
+        raise HTTPException(status_code=400, detail="Invalid room ID")
+
+    email = (payload.email or "").strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Please enter a valid email address")
+
+    try:
+      meeting = get_meeting_record(room_id) or manager.get_registered_meeting(room_id)
+    except Exception:
+      meeting = manager.get_registered_meeting(room_id)
+
+    if not meeting:
+        ensure_meeting_record(meeting_id=room_id)
+
+    frontend_origin = (payload.frontend_origin or "").strip().rstrip("/")
+    if not frontend_origin:
+        import os
+        frontend_origin = (os.getenv("FRONTEND_URL") or "https://gmeet-wt19.vercel.app").rstrip("/")
+
+    meet_link = f"{frontend_origin}/meeting/{room_id}?role=participant&email={email}"
+    host_display = (payload.host_name or payload.host_email or "The host").strip()
+    subject = "Invitation to join a Shnoor Meeting"
+    plain_text = (
+        f"{host_display} invited you to join a live meeting on Shnoor Meetings.\n\n"
+        f"Join the meeting: {meet_link}\n\n"
+        "After opening the link, click Ask to join and wait for the host to admit you."
+    )
+    html_body = f"""
+    <div style="font-family:Arial,sans-serif;background:#f8fafc;padding:24px;color:#111827;">
+      <div style="max-width:560px;margin:auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;">
+        <h2 style="margin:0 0 12px;font-size:22px;">Join a Shnoor Meeting</h2>
+        <p style="margin:0 0 18px;font-size:15px;line-height:1.5;">
+          <strong>{host_display}</strong> invited you to join a live meeting.
+        </p>
+        <a href="{meet_link}"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:700;">
+          Join the meet
+        </a>
+        <p style="margin:18px 0 0;font-size:13px;color:#6b7280;line-height:1.5;">
+          You will enter the waiting room first. Click Ask to join, and the host will admit you.
+        </p>
+        <p style="margin:12px 0 0;font-size:12px;color:#9ca3af;word-break:break-all;">
+          {meet_link}
+        </p>
+      </div>
+    </div>
+    """
+
+    try:
+        _dispatch_single_email(email, subject, plain_text, html_body, reply_to=(payload.host_email or ""))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to send invite email: {exc}")
+
+    return {"ok": True, "email": email}

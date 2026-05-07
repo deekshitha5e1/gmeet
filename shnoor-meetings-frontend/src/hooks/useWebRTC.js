@@ -15,12 +15,13 @@ const ICE_SERVERS = {
   ],
 };
 
-function getStableClientId(roomId) {
-  const storageKey = `meeting_client_${roomId}`;
+function getStableClientId(roomId, role = 'participant') {
+  const normalizedRole = role === 'host' ? 'host' : 'participant';
+  const storageKey = `meeting_client_${roomId}_${normalizedRole}`;
   const existingId = sessionStorage.getItem(storageKey);
   const currentUser = getCurrentUser();
 
-  if (existingId && existingId !== currentUser?.meetingUserId) {
+  if (existingId) {
     return existingId;
   }
 
@@ -39,7 +40,7 @@ function getDisplayName(roomId, isHost) {
   }
 
   const currentUser = getCurrentUser();
-  const generatedName = currentUser?.name || (isHost ? 'Host' : `Guest ${getStableClientId(roomId).slice(-4).toUpperCase()}`);
+  const generatedName = currentUser?.name || (isHost ? 'Host' : `Guest ${getStableClientId(roomId, 'participant').slice(-4).toUpperCase()}`);
   sessionStorage.setItem(storageKey, generatedName);
   return generatedName;
 }
@@ -101,7 +102,7 @@ export function useWebRTC(roomId, options = {}) {
 
   const [isHostState, setIsHostState] = useState(() => computeIsHost());
   const isHost = useRef(isHostState);
-  const clientId = useRef(getStableClientId(roomId));
+  const clientId = useRef(getStableClientId(roomId, isHostState ? 'host' : 'participant'));
   const displayName = useRef(getDisplayName(roomId, isHostState));
   const currentUser = useRef(getCurrentUser());
   const ws = useRef(null);
@@ -114,6 +115,7 @@ export function useWebRTC(roomId, options = {}) {
   const joinRoomCallbackRef = useRef(null);
   const handleSignalingDataRef = useRef(null);
   const pendingMessagesRef = useRef([]);
+  const answerRenegotiatedPeersRef = useRef(new Set());
   // Stores the video RTCRtpTransceiver for each peer so we can reliably replaceTrack
   const videoTransceiversRef = useRef({});
   const audioTransceiversRef = useRef({});
@@ -188,6 +190,12 @@ export function useWebRTC(roomId, options = {}) {
     }
   }, []);
 
+  const transceiverMatchesKind = useCallback((transceiver, kind) => (
+    transceiver?.sender?.track?.kind === kind ||
+    transceiver?.receiver?.track?.kind === kind ||
+    transceiver?.receiver?.track?.kind === kind
+  ), []);
+
   const replaceSenderTrack = useCallback(async (peerId, kind, track) => {
     const pc = peerConnections.current[peerId];
     if (!pc) return;
@@ -195,7 +203,7 @@ export function useWebRTC(roomId, options = {}) {
     const transceiverMap = kind === 'video' ? videoTransceiversRef.current : audioTransceiversRef.current;
     let transceiver = transceiverMap[peerId];
 
-    if (!transceiver || transceiver.sender?.track?.kind !== kind) {
+    if (!transceiverMatchesKind(transceiver, kind)) {
       transceiver = pc.getTransceivers().find((tc) =>
         tc.sender && (tc.sender.track?.kind === kind || tc.receiver?.track?.kind === kind)
       );
@@ -207,8 +215,27 @@ export function useWebRTC(roomId, options = {}) {
     const sender = transceiver?.sender || pc.getSenders().find((s) => s.track?.kind === kind);
     if (sender) {
       await sender.replaceTrack(track);
+      return;
     }
-  }, []);
+
+    if (track) {
+      const nextTransceiver = pc.addTransceiver(track, {
+        direction: 'sendrecv',
+        streams: currentOutgoingStreamRef.current ? [currentOutgoingStreamRef.current] : [],
+      });
+      transceiverMap[peerId] = nextTransceiver;
+    }
+  }, [transceiverMatchesKind]);
+
+  const attachLocalTracksToPeer = useCallback(async (peerId, stream) => {
+    const audioTrack = stream?.getAudioTracks?.()[0] || null;
+    const videoTrack = stream?.getVideoTracks?.()[0] || null;
+
+    await Promise.all([
+      replaceSenderTrack(peerId, 'audio', audioTrack),
+      replaceSenderTrack(peerId, 'video', videoTrack),
+    ]);
+  }, [replaceSenderTrack]);
 
   const replaceTrackForAllPeers = useCallback(async (kind, track) => {
     await Promise.all(
@@ -219,6 +246,23 @@ export function useWebRTC(roomId, options = {}) {
       )
     );
   }, [replaceSenderTrack]);
+
+  const renegotiatePeer = useCallback(async (peerId) => {
+    const pc = peerConnections.current[peerId];
+    if (!pc || pc.signalingState !== 'stable') return;
+
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      sendSignalingMessage({ type: 'offer', target: peerId, offer });
+    } catch (error) {
+      console.warn(`[WebRTC] Failed to renegotiate with ${peerId}:`, error);
+    }
+  }, [sendSignalingMessage]);
+
+  const renegotiateAllPeers = useCallback(async () => {
+    await Promise.all(Object.keys(peerConnections.current).map((peerId) => renegotiatePeer(peerId)));
+  }, [renegotiatePeer]);
 
   const joinRoom = useCallback(() => {
     if (!autoJoin || joinedRoomRef.current || !ws.current || ws.current.readyState !== WebSocket.OPEN) {
@@ -268,33 +312,26 @@ export function useWebRTC(roomId, options = {}) {
     }
   }, [autoJoin, roomId, sendSignalingMessage, startSessionTracking]);
 
-  const createPeerConnection = useCallback((peerId, stream) => {
+  const createPeerConnection = useCallback((peerId, stream, { addInitialTransceivers = true } = {}) => {
     if (!peerId) return null;
     if (peerConnections.current[peerId]) return peerConnections.current[peerId];
 
     const pc = new RTCPeerConnection(ICE_SERVERS);
 
-    // Add audio
-    const audioTrack = stream?.getAudioTracks()[0] || null;
-    if (audioTrack) {
-      const audioSender = pc.addTrack(audioTrack, stream);
-      const audioTransceiver = pc.getTransceivers().find((tc) => tc.sender === audioSender);
-      if (audioTransceiver) {
-        audioTransceiversRef.current[peerId] = audioTransceiver;
-      }
-    } else {
-      audioTransceiversRef.current[peerId] = pc.addTransceiver('audio', { direction: 'sendrecv' });
-    }
+    if (addInitialTransceivers) {
+      const audioTrack = stream?.getAudioTracks()[0] || null;
+      audioTransceiversRef.current[peerId] = pc.addTransceiver(
+        audioTrack || 'audio',
+        { direction: 'sendrecv', streams: stream ? [stream] : [] }
+      );
 
-    // ALWAYS add a sendrecv video transceiver and store its reference.
-    // This ensures ontrack fires correctly on BOTH sides, and replaceTrack
-    // always has a valid sender regardless of camera state.
-    const videoTrack = stream?.getVideoTracks()[0] || null;
-    const videoTransceiver = pc.addTransceiver(
-      videoTrack || 'video',
-      { direction: 'sendrecv', streams: stream ? [stream] : [] }
-    );
-    videoTransceiversRef.current[peerId] = videoTransceiver;
+      const videoTrack = stream?.getVideoTracks()[0] || null;
+      const videoTransceiver = pc.addTransceiver(
+        videoTrack || 'video',
+        { direction: 'sendrecv', streams: stream ? [stream] : [] }
+      );
+      videoTransceiversRef.current[peerId] = videoTransceiver;
+    }
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
@@ -307,13 +344,48 @@ export function useWebRTC(roomId, options = {}) {
     };
 
     pc.ontrack = (event) => {
+      const syncTrackState = () => {
+        setParticipantsMetadata((prev) => ({
+          ...prev,
+          [peerId]: {
+            ...prev[peerId],
+            ...(event.track.kind === 'audio'
+              ? { isAudioEnabled: event.track.readyState === 'live' && event.track.enabled && !event.track.muted }
+              : {}),
+            ...(event.track.kind === 'video'
+              ? { isVideoEnabled: event.track.readyState === 'live' && event.track.enabled && !event.track.muted }
+              : {}),
+          },
+        }));
+      };
+
+      event.track.addEventListener('mute', syncTrackState);
+      event.track.addEventListener('unmute', syncTrackState);
+      event.track.addEventListener('ended', syncTrackState);
+      syncTrackState();
+
+      setParticipantsMetadata((prev) => ({
+        ...prev,
+        [peerId]: {
+          ...prev[peerId],
+          ...(event.track.kind === 'audio' && typeof prev[peerId]?.isAudioEnabled !== 'boolean'
+            ? { isAudioEnabled: true }
+            : {}),
+          ...(event.track.kind === 'video' && typeof prev[peerId]?.isVideoEnabled !== 'boolean'
+            ? { isVideoEnabled: true }
+            : {}),
+        },
+      }));
+
       setRemoteStreams((prev) => {
-        let incomingStream = event.streams[0];
-        if (!incomingStream) {
-          incomingStream = prev[peerId] || new MediaStream();
-          incomingStream.addTrack(event.track);
+        const existingStream = prev[peerId] || event.streams[0] || new MediaStream();
+        const tracks = existingStream.getTracks();
+
+        if (!tracks.some((track) => track.id === event.track.id)) {
+          tracks.push(event.track);
         }
-        return { ...prev, [peerId]: incomingStream };
+
+        return { ...prev, [peerId]: new MediaStream(tracks) };
       });
     };
 
@@ -386,7 +458,7 @@ export function useWebRTC(roomId, options = {}) {
 
       case 'offer': {
         const stream_ = currentOutgoingStreamRef.current || stream || originalStream.current;
-        const pcOffer = createPeerConnection(peerId, stream_);
+        const pcOffer = createPeerConnection(peerId, stream_, { addInitialTransceivers: false });
         if (!pcOffer) return;
 
         await pcOffer.setRemoteDescription(new RTCSessionDescription(data.offer));
@@ -422,9 +494,20 @@ export function useWebRTC(roomId, options = {}) {
           audioTransceiversRef.current[peerId] = matchedAudioTC;
         }
 
+        await attachLocalTracksToPeer(peerId, stream_);
+
         const answer = await pcOffer.createAnswer();
         await pcOffer.setLocalDescription(answer);
         sendSignalingMessage({ type: 'answer', target: peerId, answer });
+
+        if (!isHost.current && !answerRenegotiatedPeersRef.current.has(peerId)) {
+          answerRenegotiatedPeersRef.current.add(peerId);
+          window.setTimeout(() => {
+            attachLocalTracksToPeer(peerId, currentOutgoingStreamRef.current || originalStream.current)
+              .then(() => renegotiatePeer(peerId))
+              .catch((error) => console.warn(`[WebRTC] Failed to renegotiate local tracks for ${peerId}:`, error));
+          }, 300);
+        }
         break;
       }
 
@@ -565,9 +648,11 @@ export function useWebRTC(roomId, options = {}) {
     }
   }, [
     addMessage,
+    attachLocalTracksToPeer,
     createPeerConnection,
     endSessionTracking,
     roomId,
+    renegotiatePeer,
     sendSignalingMessage,
     startSessionTracking,
     syncParticipantState,
@@ -792,13 +877,14 @@ export function useWebRTC(roomId, options = {}) {
       // Toggle it on/off
       realVideoTrack.enabled = !realVideoTrack.enabled;
       const newState = realVideoTrack.enabled;
-      await replaceTrackForAllPeers('video', newState ? realVideoTrack : null);
+      await replaceTrackForAllPeers('video', realVideoTrack);
       setIsVideoEnabled(newState);
       setParticipantsMetadata((prev) => ({
         ...prev,
         [clientId.current]: { ...prev[clientId.current] || {}, isVideoEnabled: newState },
       }));
       syncParticipantState({ isVideoEnabled: newState });
+      await renegotiateAllPeers();
     } else {
       // No real camera yet — acquire one and replace dummy in all PCs
       try {
@@ -829,11 +915,12 @@ export function useWebRTC(roomId, options = {}) {
           [clientId.current]: { ...prev[clientId.current] || {}, isVideoEnabled: true },
         }));
         syncParticipantState({ isVideoEnabled: true });
+        await renegotiateAllPeers();
       } catch (e) {
         console.error('[toggleVideo] Failed to acquire camera:', e);
       }
     }
-  }, [publishLocalStream, replaceTrackForAllPeers, syncParticipantState]);
+  }, [publishLocalStream, renegotiateAllPeers, replaceTrackForAllPeers, syncParticipantState]);
 
 
   const toggleAudio = useCallback(async () => {
@@ -849,7 +936,7 @@ export function useWebRTC(roomId, options = {}) {
     if (audioTrack) {
       audioTrack.enabled = !audioTrack.enabled;
       newState = audioTrack.enabled;
-      await replaceTrackForAllPeers('audio', newState ? audioTrack : null);
+      await replaceTrackForAllPeers('audio', audioTrack);
     } else {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -876,7 +963,8 @@ export function useWebRTC(roomId, options = {}) {
       },
     }));
     syncParticipantState({ isAudioEnabled: newState });
-  }, [publishLocalStream, replaceTrackForAllPeers, syncParticipantState]);
+    await renegotiateAllPeers();
+  }, [publishLocalStream, renegotiateAllPeers, replaceTrackForAllPeers, syncParticipantState]);
 
   const stopScreenShare = useCallback((screenTrack) => {
     if (screenTrack) { screenTrack.stop(); screenTrack.onended = null; }
@@ -893,7 +981,8 @@ export function useWebRTC(roomId, options = {}) {
       [clientId.current]: { ...prev[clientId.current], isSharingScreen: false },
     }));
     syncParticipantState({ isSharingScreen: false });
-  }, [publishLocalStream, replaceTrackForAllPeers, syncParticipantState]);
+    renegotiateAllPeers();
+  }, [publishLocalStream, renegotiateAllPeers, replaceTrackForAllPeers, syncParticipantState]);
 
   const toggleScreenShare = useCallback(async () => {
     try {
@@ -921,6 +1010,7 @@ export function useWebRTC(roomId, options = {}) {
           [clientId.current]: { ...prev[clientId.current] || {}, isSharingScreen: true },
         }));
         syncParticipantState({ isSharingScreen: true });
+        await renegotiateAllPeers();
       } else {
         const screenTrack = currentOutgoingStreamRef.current?.getVideoTracks?.()?.[0];
         stopScreenShare(screenTrack);
@@ -955,8 +1045,10 @@ export function useWebRTC(roomId, options = {}) {
       role: isHost.current ? 'host' : 'participant',
       isHandRaised: nextState,
       isSharingScreen,
+      isAudioEnabled,
+      isVideoEnabled,
     });
-  }, [isHandRaised, isSharingScreen, sendSignalingMessage]);
+  }, [isAudioEnabled, isHandRaised, isSharingScreen, isVideoEnabled, sendSignalingMessage]);
 
   const sendChatMessage = useCallback((text) => {
     sendSignalingMessage({
