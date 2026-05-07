@@ -28,7 +28,7 @@ export default function LobbyPage() {
     Boolean(storedHostEmail === `id:${currentUser?.meetingUserId}`);
 
   const getInitialRole = () => {
-    if (storedRole === 'host' || storedHostFlag) return 'host';
+    if (roleFromLink === 'host' || storedRole === 'host' || storedHostFlag) return 'host';
     if (roleFromLink === 'participant' || storedRole === 'participant') return 'participant';
     return undefined;
   };
