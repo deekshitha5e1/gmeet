@@ -107,6 +107,7 @@ export function useWebRTC(roomId, options = {}) {
   const ws = useRef(null);
   const peerConnections = useRef({});
   const originalStream = useRef(null);
+  const currentOutgoingStreamRef = useRef(null);
   const activeStreamsRef = useRef([]);
   const joinedRoomRef = useRef(false);
   const activeSessionIdsRef = useRef({});
@@ -115,6 +116,7 @@ export function useWebRTC(roomId, options = {}) {
   const pendingMessagesRef = useRef([]);
   // Stores the video RTCRtpTransceiver for each peer so we can reliably replaceTrack
   const videoTransceiversRef = useRef({});
+  const audioTransceiversRef = useRef({});
 
   const addMessage = useCallback((msg) => {
     setMessages((prev) => [...prev, msg]);
@@ -172,9 +174,51 @@ export function useWebRTC(roomId, options = {}) {
       role: isHost.current ? 'host' : 'participant',
       isHandRaised,
       isSharingScreen,
+      isAudioEnabled,
+      isVideoEnabled,
       ...extraState,
     });
-  }, [isHandRaised, isSharingScreen, sendSignalingMessage]);
+  }, [isAudioEnabled, isHandRaised, isSharingScreen, isVideoEnabled, sendSignalingMessage]);
+
+  const publishLocalStream = useCallback((nextStream, { camera = false } = {}) => {
+    currentOutgoingStreamRef.current = nextStream || null;
+    setLocalStream(nextStream || null);
+    if (camera) {
+      setCameraStream(nextStream || null);
+    }
+  }, []);
+
+  const replaceSenderTrack = useCallback(async (peerId, kind, track) => {
+    const pc = peerConnections.current[peerId];
+    if (!pc) return;
+
+    const transceiverMap = kind === 'video' ? videoTransceiversRef.current : audioTransceiversRef.current;
+    let transceiver = transceiverMap[peerId];
+
+    if (!transceiver || transceiver.sender?.track?.kind !== kind) {
+      transceiver = pc.getTransceivers().find((tc) =>
+        tc.sender && (tc.sender.track?.kind === kind || tc.receiver?.track?.kind === kind)
+      );
+      if (transceiver) {
+        transceiverMap[peerId] = transceiver;
+      }
+    }
+
+    const sender = transceiver?.sender || pc.getSenders().find((s) => s.track?.kind === kind);
+    if (sender) {
+      await sender.replaceTrack(track);
+    }
+  }, []);
+
+  const replaceTrackForAllPeers = useCallback(async (kind, track) => {
+    await Promise.all(
+      Object.keys(peerConnections.current).map((peerId) =>
+        replaceSenderTrack(peerId, kind, track).catch((error) =>
+          console.warn(`[WebRTC] Failed to replace ${kind} track for ${peerId}:`, error)
+        )
+      )
+    );
+  }, [replaceSenderTrack]);
 
   const joinRoom = useCallback(() => {
     if (!autoJoin || joinedRoomRef.current || !ws.current || ws.current.readyState !== WebSocket.OPEN) {
@@ -193,6 +237,8 @@ export function useWebRTC(roomId, options = {}) {
         role: isHost.current ? 'host' : 'participant',
         isHandRaised: false,
         isSharingScreen: false,
+        isAudioEnabled,
+        isVideoEnabled,
       },
     }));
 
@@ -231,9 +277,13 @@ export function useWebRTC(roomId, options = {}) {
     // Add audio
     const audioTrack = stream?.getAudioTracks()[0] || null;
     if (audioTrack) {
-      pc.addTrack(audioTrack, stream);
+      const audioSender = pc.addTrack(audioTrack, stream);
+      const audioTransceiver = pc.getTransceivers().find((tc) => tc.sender === audioSender);
+      if (audioTransceiver) {
+        audioTransceiversRef.current[peerId] = audioTransceiver;
+      }
     } else {
-      pc.addTransceiver('audio', { direction: 'recvonly' });
+      audioTransceiversRef.current[peerId] = pc.addTransceiver('audio', { direction: 'sendrecv' });
     }
 
     // ALWAYS add a sendrecv video transceiver and store its reference.
@@ -303,7 +353,7 @@ export function useWebRTC(roomId, options = {}) {
 
     switch (type) {
       case 'user-joined': {
-        const stream_ = stream || originalStream.current;
+        const stream_ = currentOutgoingStreamRef.current || stream || originalStream.current;
         const pc = createPeerConnection(peerId, stream_);
         if (!pc) {
           return;
@@ -335,7 +385,7 @@ export function useWebRTC(roomId, options = {}) {
 
 
       case 'offer': {
-        const stream_ = stream || originalStream.current;
+        const stream_ = currentOutgoingStreamRef.current || stream || originalStream.current;
         const pcOffer = createPeerConnection(peerId, stream_);
         if (!pcOffer) return;
 
@@ -360,6 +410,16 @@ export function useWebRTC(roomId, options = {}) {
           }
           // Always overwrite with the correctly matched transceiver
           videoTransceiversRef.current[peerId] = matchedTC;
+        }
+
+        const matchedAudioTC = pcOffer.getTransceivers().find(t =>
+          t.receiver?.track?.kind === 'audio' || t.sender?.track?.kind === 'audio'
+        );
+        if (matchedAudioTC) {
+          if (matchedAudioTC.direction !== 'sendrecv') {
+            matchedAudioTC.direction = 'sendrecv';
+          }
+          audioTransceiversRef.current[peerId] = matchedAudioTC;
         }
 
         const answer = await pcOffer.createAnswer();
@@ -519,7 +579,6 @@ export function useWebRTC(roomId, options = {}) {
 
   useEffect(() => {
     const nextIsHost = computeIsHost();
-    const wasHost = isHost.current;
     isHost.current = nextIsHost;
     setIsHostState(nextIsHost);
 
@@ -574,11 +633,11 @@ export function useWebRTC(roomId, options = {}) {
           if (videoTrack) videoTrack.enabled = initialMediaState.current.videoEnabled;
 
           originalStream.current = stream;
+          currentOutgoingStreamRef.current = stream;
           activeStreamsRef.current.push(stream);
 
           if (isMounted) {
-            setLocalStream(stream);
-            setCameraStream(stream);
+            publishLocalStream(stream, { camera: true });
             setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
             setIsVideoEnabled(videoTrack ? videoTrack.enabled : false);
           }
@@ -642,6 +701,8 @@ export function useWebRTC(roomId, options = {}) {
         stream?.getTracks().forEach((track) => track.stop());
       });
       activeStreamsRef.current = [];
+      currentOutgoingStreamRef.current = null;
+      originalStream.current = null;
 
       Object.keys(activeSessionIdsRef.current).forEach((participantId) => {
         endSessionTracking(participantId);
@@ -649,7 +710,7 @@ export function useWebRTC(roomId, options = {}) {
 
       joinedRoomRef.current = false;
     };
-  }, [acquireMedia, autoJoin, roomId, endSessionTracking]);
+  }, [acquireMedia, autoJoin, roomId, endSessionTracking, publishLocalStream]);
 
   const admitParticipant = useCallback(async (participantId) => {
     sendSignalingMessage({ type: 'accept_user', target: participantId });
@@ -731,6 +792,7 @@ export function useWebRTC(roomId, options = {}) {
       // Toggle it on/off
       realVideoTrack.enabled = !realVideoTrack.enabled;
       const newState = realVideoTrack.enabled;
+      await replaceTrackForAllPeers('video', newState ? realVideoTrack : null);
       setIsVideoEnabled(newState);
       setParticipantsMetadata((prev) => ({
         ...prev,
@@ -744,28 +806,22 @@ export function useWebRTC(roomId, options = {}) {
         const newTrack = camStream.getVideoTracks()[0];
         if (!newTrack) return;
 
-        // Use stored transceiver references for reliable replacement
-        await Promise.all(
-          Object.entries(videoTransceiversRef.current).map(([, transceiver]) =>
-            transceiver.sender.replaceTrack(newTrack).catch(e =>
-              console.error('[toggleVideo] replaceTrack failed:', e)
-            )
-          )
-        );
+        await replaceTrackForAllPeers('video', newTrack);
 
         // Update originalStream with real camera
         if (originalStream.current) {
           originalStream.current.getVideoTracks().forEach(t => { t.stop(); originalStream.current.removeTrack(t); });
           originalStream.current.addTrack(newTrack);
+        } else {
+          originalStream.current = new MediaStream([newTrack]);
         }
 
         // Create a new MediaStream so React detects the change
         const next = new MediaStream();
-        localStream?.getAudioTracks().forEach(t => next.addTrack(t));
+        (currentOutgoingStreamRef.current || originalStream.current)?.getAudioTracks().forEach(t => next.addTrack(t));
         next.addTrack(newTrack);
         
-        setLocalStream(next);
-        setCameraStream(next);
+        publishLocalStream(next, { camera: true });
 
         setIsVideoEnabled(true);
         setParticipantsMetadata((prev) => ({
@@ -777,30 +833,32 @@ export function useWebRTC(roomId, options = {}) {
         console.error('[toggleVideo] Failed to acquire camera:', e);
       }
     }
-  }, [syncParticipantState]);
+  }, [publishLocalStream, replaceTrackForAllPeers, syncParticipantState]);
 
 
   const toggleAudio = useCallback(async () => {
     let newState;
-    if (!localStream) return;
+    let baseStream = currentOutgoingStreamRef.current || originalStream.current;
+    if (!baseStream) {
+      baseStream = new MediaStream();
+      originalStream.current = baseStream;
+      currentOutgoingStreamRef.current = baseStream;
+    }
 
-    const audioTrack = localStream.getAudioTracks()[0];
+    const audioTrack = baseStream.getAudioTracks()[0];
     if (audioTrack) {
       audioTrack.enabled = !audioTrack.enabled;
       newState = audioTrack.enabled;
+      await replaceTrackForAllPeers('audio', newState ? audioTrack : null);
     } else {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const newTrack = stream.getAudioTracks()[0];
         if (newTrack) {
-          localStream.addTrack(newTrack);
-          originalStream.current?.addTrack(newTrack);
-          Object.values(peerConnections.current).forEach((pc) => {
-            const audioTransceiver = pc.getTransceivers().find(t => t.receiver.track.kind === 'audio');
-            if (audioTransceiver && audioTransceiver.sender) {
-              audioTransceiver.sender.replaceTrack(newTrack).catch(e => console.error("Replace audio track failed:", e));
-            }
-          });
+          baseStream.addTrack(newTrack);
+          activeStreamsRef.current.push(stream);
+          await replaceTrackForAllPeers('audio', newTrack);
+          publishLocalStream(baseStream, { camera: baseStream === originalStream.current });
           newState = true;
         }
       } catch (e) {
@@ -818,7 +876,7 @@ export function useWebRTC(roomId, options = {}) {
       },
     }));
     syncParticipantState({ isAudioEnabled: newState });
-  }, [localStream, syncParticipantState]);
+  }, [publishLocalStream, replaceTrackForAllPeers, syncParticipantState]);
 
   const stopScreenShare = useCallback((screenTrack) => {
     if (screenTrack) { screenTrack.stop(); screenTrack.onended = null; }
@@ -826,22 +884,16 @@ export function useWebRTC(roomId, options = {}) {
     const cameraTrack = originalStream.current?.getVideoTracks()
       .find(t => t.readyState === 'live' && !t.label?.toLowerCase().includes('canvas')) || null;
 
-    // Use stored transceiver references
-    Object.values(videoTransceiversRef.current).forEach((transceiver) => {
-      transceiver.sender.replaceTrack(cameraTrack).catch(err =>
-        console.warn('[ScreenShare] Failed to restore camera track:', err)
-      );
-    });
+    replaceTrackForAllPeers('video', cameraTrack);
 
-    setLocalStream(originalStream.current);
-    setCameraStream(originalStream.current);
+    publishLocalStream(originalStream.current, { camera: true });
     setIsSharingScreen(false);
     setParticipantsMetadata((prev) => ({
       ...prev,
       [clientId.current]: { ...prev[clientId.current], isSharingScreen: false },
     }));
     syncParticipantState({ isSharingScreen: false });
-  }, [syncParticipantState]);
+  }, [publishLocalStream, replaceTrackForAllPeers, syncParticipantState]);
 
   const toggleScreenShare = useCallback(async () => {
     try {
@@ -854,48 +906,7 @@ export function useWebRTC(roomId, options = {}) {
         activeStreamsRef.current.push(screenStream);
         const screenTrack = screenStream.getVideoTracks()[0];
 
-        // Triple-fallback approach to guarantee we find the video sender
-        await Promise.all(
-          Object.entries(peerConnections.current).map(async ([peerId, pc]) => {
-            // Strategy 1: Use stored transceiver reference
-            const storedTransceiver = videoTransceiversRef.current[peerId];
-            if (storedTransceiver) {
-              try {
-                await storedTransceiver.sender.replaceTrack(screenTrack);
-                return;
-              } catch (e) {
-                console.warn('[ScreenShare] stored transceiver replaceTrack failed, trying fallback:', e);
-              }
-            }
-
-            // Strategy 2: Find video sender via getSenders (track.kind === 'video')
-            const videoSender = pc.getSenders().find(s => s.track?.kind === 'video');
-            if (videoSender) {
-              try {
-                await videoSender.replaceTrack(screenTrack);
-                return;
-              } catch (e) {
-                console.warn('[ScreenShare] getSenders fallback failed:', e);
-              }
-            }
-
-            // Strategy 3: Walk all transceivers and pick the first video one
-            for (const tc of pc.getTransceivers()) {
-              if (tc.sender && (tc.sender.track?.kind === 'video' || tc.receiver?.track?.kind === 'video')) {
-                try {
-                  await tc.sender.replaceTrack(screenTrack);
-                  // Store this transceiver for future use
-                  videoTransceiversRef.current[peerId] = tc;
-                  return;
-                } catch (e) {
-                  console.warn('[ScreenShare] transceiver walk failed:', e);
-                }
-              }
-            }
-
-            console.error('[ScreenShare] Could not find any video sender for peer:', peerId);
-          })
-        );
+        await replaceTrackForAllPeers('video', screenTrack);
 
         screenTrack.onended = () => stopScreenShare(screenTrack);
 
@@ -903,7 +914,7 @@ export function useWebRTC(roomId, options = {}) {
         originalStream.current?.getAudioTracks().forEach(t => newLocalStream.addTrack(t));
         newLocalStream.addTrack(screenTrack);
 
-        setLocalStream(newLocalStream);
+        publishLocalStream(newLocalStream);
         setIsSharingScreen(true);
         setParticipantsMetadata((prev) => ({
           ...prev,
@@ -911,14 +922,14 @@ export function useWebRTC(roomId, options = {}) {
         }));
         syncParticipantState({ isSharingScreen: true });
       } else {
-        const screenTrack = localStream?.getVideoTracks?.()?.[0];
+        const screenTrack = currentOutgoingStreamRef.current?.getVideoTracks?.()?.[0];
         stopScreenShare(screenTrack);
       }
     } catch (error) {
       console.error('[ScreenShare] Error:', error);
       setIsSharingScreen(false);
     }
-  }, [isSharingScreen, localStream, stopScreenShare, syncParticipantState]);
+  }, [isSharingScreen, localStream, publishLocalStream, replaceTrackForAllPeers, stopScreenShare, syncParticipantState]);
 
 
   const toggleRaiseHand = useCallback(() => {
