@@ -28,8 +28,9 @@ export default function LobbyPage() {
     Boolean(storedHostEmail === `id:${currentUser?.meetingUserId}`);
 
   const getInitialRole = () => {
+    if (roleFromLink === 'participant') return 'participant';
     if (roleFromLink === 'host' || storedRole === 'host' || storedHostFlag) return 'host';
-    if (roleFromLink === 'participant' || storedRole === 'participant') return 'participant';
+    if (storedRole === 'participant') return 'participant';
     return undefined;
   };
 
@@ -81,7 +82,7 @@ export default function LobbyPage() {
             (hostEmail && normalizedCurrentEmail === hostEmail)
           )
         );
-        const effectivelyHost = isBackendHost || isHost;
+        const effectivelyHost = roleFromLink !== 'participant' && (isBackendHost || isHost);
         if (effectivelyHost) {
           const hostValue = normalizedCurrentEmail || `id:${currentUser?.meetingUserId}`;
           localStorage.setItem(`meeting_host_${roomId}`, hostValue);

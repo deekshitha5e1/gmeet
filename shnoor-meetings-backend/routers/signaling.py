@@ -193,7 +193,15 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
             
             # Allow upgrading to host via message (legacy frontend support)
             if msg_type in ["host_join", "host-ready"]:
-                if normalized_email and not is_host_of_meeting(meeting_id, normalized_email):
+                verified_host_email = bool(normalized_email and is_host_of_meeting(meeting_id, normalized_email))
+                if role != "host" and not verified_host_email:
+                    logger.warning(
+                        "Ignoring host promotion for non-host client %s in meeting %s",
+                        cid,
+                        meeting_id,
+                    )
+                    continue
+                if normalized_email and not verified_host_email:
                     logger.warning(
                         "Ignoring host promotion for non-host email %s in meeting %s",
                         normalized_email,

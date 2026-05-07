@@ -85,6 +85,10 @@ export function useWebRTC(roomId, options = {}) {
   );
 
   const computeIsHost = useCallback(() => {
+    if (initialRole === 'participant') {
+      return false;
+    }
+
     const roleInSession = sessionStorage.getItem(`meeting_role_${roomId}`);
     const hostInLocal = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
     const currentUser = getCurrentUser();

@@ -37,10 +37,13 @@ const MeetingRoom = () => {
   const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
   const storedRole = sessionStorage.getItem(`meeting_role_${roomId}`);
 
-  const iAmHost =
-    storedRole === 'host' ||
-    (myEmail && storedHostEmail && myEmail === storedHostEmail) ||
-    (myId && storedHostEmail === `id:${myId}`);
+  const iAmHost = storedRole === 'participant'
+    ? false
+    : (
+      storedRole === 'host' ||
+      (myEmail && storedHostEmail && myEmail === storedHostEmail) ||
+      (myId && storedHostEmail === `id:${myId}`)
+    );
 
   // WebRTC Hook - Optimized Return
   const {
