@@ -142,19 +142,9 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
         
     await manager.connect(websocket, meeting_id, role, cid)
     
-    # Auto-admit if user is invited via calendar
-    if role == "participant" and email:
-        if is_invited_to_meeting(meeting_id, email):
-            logger.info(f"Auto-admitting invited participant {email} to meeting {meeting_id}")
-            manager.add_accepted_participant(meeting_id, cid)
-            # Notify the client they are accepted
-            await websocket.send_json({
-                "type": "accepted",
-                "meetingId": meeting_id,
-                "admitted": True,
-                "reason": "invited"
-            })
-
+    # Auto-admit removed as per user request. 
+    # All participants must now be manually admitted by the host.
+    
     try:
         while True:
             data = await websocket.receive_json()

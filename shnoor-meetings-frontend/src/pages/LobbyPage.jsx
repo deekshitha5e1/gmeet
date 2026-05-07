@@ -95,12 +95,9 @@ export default function LobbyPage() {
           
           if (isInvited) {
             sessionStorage.setItem(`meeting_role_${roomId}`, 'participant');
-            sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
             if (normalizedCurrentEmail) sessionStorage.setItem(`meeting_email_${roomId}`, normalizedCurrentEmail);
             setResolvedRole('participant');
-            setTimeout(() => {
-              joinMeeting();
-            }, 800);
+            // Auto-join and Auto-admit removed as per user request. 
           } else if (!storedHostFlag) {
             sessionStorage.setItem(`meeting_role_${roomId}`, 'participant');
             if (normalizedCurrentEmail) sessionStorage.setItem(`meeting_email_${roomId}`, normalizedCurrentEmail);
