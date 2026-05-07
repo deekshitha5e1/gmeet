@@ -379,18 +379,29 @@ def _dispatch_group_email(to_emails: list, subject: str, plain_text: str, html_b
     target = individual_recipient if individual_recipient else f"{len(to_emails)} recipients"
     logger.info("Dispatching email to=%s subject='%s'", target, subject)
     
+    resend_error = None
     if _resend_is_configured():
         try:
             _send_via_resend(to_emails, subject, plain_text, html_body, reply_to, individual_recipient)
             return
         except Exception as resend_err:
+            resend_error = str(resend_err)
             logger.warning(f"Resend failed: {resend_err}. Falling back to SMTP.")
 
     if _smtp_is_configured():
-        _send_via_smtp(to_emails, subject, plain_text, html_body, reply_to, individual_recipient)
-        return
+        try:
+            _send_via_smtp(to_emails, subject, plain_text, html_body, reply_to, individual_recipient)
+            return
+        except Exception as smtp_err:
+            smtp_error = str(smtp_err)
+            error_msg = f"All email providers failed. SMTP Error: {smtp_error}"
+            if resend_error:
+                error_msg += f" | Resend Error: {resend_error}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
     raise RuntimeError(
-        f"No email provider configured or all failed. Missing SMTP: {_get_missing_smtp_keys()}; Missing Resend: {_get_missing_resend_keys()}"
+        f"No email provider configured. Missing SMTP: {_get_missing_smtp_keys()}; Missing Resend: {_get_missing_resend_keys()}"
     )
 
 
@@ -646,6 +657,35 @@ def send_meeting_scheduled_email(event: dict):
     """Legacy shim kept for backward compat — now triggers immediate invitations."""
     logger.info("send_meeting_scheduled_email (legacy) triggering send_invitation_emails")
     send_invitation_emails(event)
+
+
+def send_room_invitation_email(room_id: str, guest_email: str, host_name: str = "", host_email: str = ""):
+    """Send a premium invitation email for a live meeting room."""
+    title = f"Live Meeting: {room_id[:8]}"
+    subject = "📩 Invitation: Shnoor Meeting"
+    heading = "📩 Live Meeting Invitation"
+    host_display = (host_name or host_email or "An organizer").strip()
+    intro_line = f"<strong>{host_display}</strong> has invited you to join a live meeting on Shnoor Meetings."
+    
+    frontend_url = (os.getenv("FRONTEND_URL") or FRONTEND_URL).rstrip("/")
+    meet_link = f"{frontend_url}/meeting/{room_id}?role=participant&email={guest_email}"
+    
+    plain_text, html_body = _build_email_html(
+        title=title,
+        heading=heading,
+        intro_line=intro_line,
+        start_time=None,  # Live meetings don't always have a start time in this context
+        end_time=None,
+        host_email=host_email,
+        guest_emails=[],
+        participant_emails=[guest_email],
+        description="This is a live meeting invitation. You can join the room immediately by clicking the button below.",
+        meet_link=meet_link,
+        reminder_mins=0,
+        category="meetings"
+    )
+    
+    _dispatch_single_email(guest_email, subject, plain_text, html_body, reply_to=host_email)
 
 
 # ─── Background Scheduler ─────────────────────────────────────────────────────
