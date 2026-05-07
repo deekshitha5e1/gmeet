@@ -5,6 +5,7 @@ import ProfileAvatar from './ProfileAvatar';
 const VideoPlayer = React.memo(({
   stream,
   label,
+  avatarName,
   picture,
   isHost = false,
   isLocal = false,
@@ -13,6 +14,7 @@ const VideoPlayer = React.memo(({
   isVideoEnabled = true,
   isAudioEnabled = true,
   isSharingScreen = false,
+  hasRemoteVideoTrack = false,
   audioLevel = 0,
   featured = false,
   compact = false,
@@ -20,20 +22,36 @@ const VideoPlayer = React.memo(({
   const videoRef = useRef(null);
   const prevIsSharingRef = useRef(isSharingScreen);
   const [hasRenderableFrame, setHasRenderableFrame] = useState(false);
+  const [trackStateVersion, setTrackStateVersion] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
+    let frameCheckId = null;
+    let frameRequestId = null;
     const video = videoRef.current;
     const justStartedSharing = isSharingScreen && !prevIsSharingRef.current;
     prevIsSharingRef.current = isSharingScreen;
 
-    const shouldPlay = isVideoEnabled || isSharingScreen;
+    const hasLiveAudioTrack = !!stream?.getAudioTracks?.().some(t => t.readyState === 'live');
+    const shouldPlay = isAudioEnabled || isVideoEnabled || isSharingScreen || hasLiveAudioTrack;
     setHasRenderableFrame(false);
 
     if (video && stream && shouldPlay) {
       const updateRenderableState = () => {
         if (!isMounted) return;
         setHasRenderableFrame(video.videoWidth > 0 && video.videoHeight > 0);
+      };
+
+      const scheduleFrameCheck = () => {
+        if (!isMounted) return;
+        updateRenderableState();
+        if (video.videoWidth > 0 && video.videoHeight > 0) return;
+
+        if (typeof video.requestVideoFrameCallback === 'function') {
+          frameRequestId = video.requestVideoFrameCallback(scheduleFrameCheck);
+        } else {
+          frameCheckId = window.setTimeout(scheduleFrameCheck, 250);
+        }
       };
 
       if (video.srcObject !== stream || justStartedSharing) {
@@ -44,11 +62,16 @@ const VideoPlayer = React.memo(({
       video.addEventListener('playing', updateRenderableState);
       video.addEventListener('resize', updateRenderableState);
       updateRenderableState();
-      video.play().then(updateRenderableState)
+      video.play().then(scheduleFrameCheck)
         .catch(err => { if (err.name !== 'AbortError') console.warn('Video play failed', err); });
+      scheduleFrameCheck();
 
       return () => {
         isMounted = false;
+        if (frameCheckId) window.clearTimeout(frameCheckId);
+        if (frameRequestId && typeof video.cancelVideoFrameCallback === 'function') {
+          video.cancelVideoFrameCallback(frameRequestId);
+        }
         video.removeEventListener('loadedmetadata', updateRenderableState);
         video.removeEventListener('playing', updateRenderableState);
         video.removeEventListener('resize', updateRenderableState);
@@ -56,56 +79,83 @@ const VideoPlayer = React.memo(({
     }
 
     return () => { isMounted = false; };
-  }, [stream, isVideoEnabled, isSharingScreen]);
+  }, [stream, isAudioEnabled, isVideoEnabled, isSharingScreen]);
+
+  useEffect(() => {
+    if (!stream) return undefined;
+
+    const tracks = stream.getTracks();
+    const refreshTrackState = () => setTrackStateVersion((version) => version + 1);
+
+    tracks.forEach((track) => {
+      track.addEventListener('mute', refreshTrackState);
+      track.addEventListener('unmute', refreshTrackState);
+      track.addEventListener('ended', refreshTrackState);
+    });
+
+    refreshTrackState();
+
+    return () => {
+      tracks.forEach((track) => {
+        track.removeEventListener('mute', refreshTrackState);
+        track.removeEventListener('unmute', refreshTrackState);
+        track.removeEventListener('ended', refreshTrackState);
+      });
+    };
+  }, [stream]);
 
   // When screen sharing: show video as soon as stream exists (track frames arrive via replaceTrack)
   // When camera: require a live video track
+  // Keep the media element mounted for audio-only participants, but visually show the avatar.
+  void trackStateVersion;
+  const hasPlayableAudio = isAudioEnabled && !!stream && stream.getAudioTracks().some(t => t.readyState === 'live' && t.enabled);
+  const hasLiveVideo = !!stream && stream.getVideoTracks().some(t => t.readyState === 'live' && t.enabled);
   const shouldAttemptVideo = isSharingScreen
     ? !!stream
-    : isVideoEnabled && !!stream && stream.getVideoTracks().some(t => t.readyState === 'live');
+    : isVideoEnabled && (hasLiveVideo || hasRemoteVideoTrack);
   const showVideo = shouldAttemptVideo && hasRenderableFrame;
+  const shouldRenderMediaElement = shouldAttemptVideo || hasPlayableAudio;
 
   return (
     <div className={`relative overflow-hidden border group flex items-center justify-center transition-all duration-300 w-full aspect-video rounded-2xl bg-gray-800 ${
       isSpeaking ? 'border-white shadow-[0_0_20px_rgba(255,255,255,0.2)]' : 'border-gray-700/50'
     }`}>
       
-      {shouldAttemptVideo && (
+      <div className={`absolute inset-0 z-10 flex items-center justify-center bg-gray-900 transition-opacity duration-200 ${
+        showVideo ? 'opacity-0 pointer-events-none' : 'opacity-100'
+      }`}>
+        <div className="relative flex items-center justify-center">
+          {isSpeaking && isAudioEnabled && (
+            <div
+              className="absolute rounded-full border-2 border-white/60 bg-white/5 transition-transform duration-75 ease-out"
+              style={{
+                width: '130%',
+                height: '130%',
+                transform: `scale(${1 + (audioLevel * 1.8)})`,
+                opacity: 0.3 + (audioLevel * 0.7)
+              }}
+            />
+          )}
+          <ProfileAvatar
+            name={avatarName || label}
+            picture={picture}
+            className="h-20 w-20 md:h-24 md:w-24"
+          />
+        </div>
+      </div>
+
+      {shouldRenderMediaElement && (
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted={isLocal}
-          className={`absolute inset-0 w-full h-full transition-opacity duration-200 ${
+          className={`absolute inset-0 z-0 w-full h-full transition-opacity duration-200 ${
             (featured || isSharingScreen) ? 'object-contain' : 'object-cover'
           } ${
             (isLocal && !isSharingScreen) ? 'transform -scale-x-100' : ''
           } ${showVideo ? 'opacity-100' : 'opacity-0'}`}
         />
-      )}
-
-      {!showVideo && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
-          <div className="relative flex items-center justify-center">
-            {/* Pulsing Voice Circle */}
-            {isSpeaking && isAudioEnabled && (
-              <div 
-                className="absolute rounded-full border-2 border-white/60 bg-white/5 transition-transform duration-75 ease-out"
-                style={{ 
-                  width: '130%', 
-                  height: '130%', 
-                  transform: `scale(${1 + (audioLevel * 1.8)})`,
-                  opacity: 0.3 + (audioLevel * 0.7)
-                }}
-              />
-            )}
-            <ProfileAvatar
-              name={label}
-              picture={picture}
-              className="h-20 w-20 md:h-24 md:w-24"
-            />
-          </div>
-        </div>
       )}
 
       {/* Overlays - Optimized to be minimal */}

@@ -17,27 +17,40 @@ const VideoGrid = React.memo(({
   
   // Transform data into a stable format for the grid
   const tiles = useMemo(() => {
-    // 1. Get all remote participants from metadata
-    const remoteTiles = Object.entries(participantsMetadata)
-      .filter(([id]) => id !== localClientId) // Exclude local user
-      .map(([peerId, meta]) => ({
+    // 1. Get all remote participants from metadata and any streams that arrive first
+    const remoteIds = Array.from(new Set([
+      ...Object.keys(participantsMetadata),
+      ...Object.keys(remoteStreams),
+    ])).filter((id) => id !== localClientId);
+
+    const remoteTiles = remoteIds
+      .map((peerId) => {
+        const meta = participantsMetadata[peerId] || {};
+        const stream = remoteStreams[peerId] || null;
+        const hasLiveAudio = !!stream?.getAudioTracks?.().some((track) => track.readyState === 'live' && track.enabled);
+        const hasLiveVideo = !!stream?.getVideoTracks?.().some((track) => track.readyState === 'live' && track.enabled);
+        return ({
         id: peerId,
-        stream: remoteStreams[peerId] || null,
+        stream,
         label: meta.name || 'Participant',
+        avatarName: meta.name || 'Participant',
         picture: meta.picture,
         isHost: meta.role === 'host',
         isLocal: false,
         isHandRaised: meta.isHandRaised,
-        isAudioEnabled: meta.isAudioEnabled ?? true,
-        isVideoEnabled: meta.isVideoEnabled ?? true,
+        isAudioEnabled: typeof meta.isAudioEnabled === 'boolean' ? meta.isAudioEnabled : hasLiveAudio,
+        isVideoEnabled: typeof meta.isVideoEnabled === 'boolean' ? meta.isVideoEnabled : hasLiveVideo,
+        hasRemoteVideoTrack: hasLiveVideo,
         isSharingScreen: meta.isSharingScreen ?? false,
-      }));
+        });
+      });
 
     // 2. Add the local user tile
     const localTile = {
       id: localClientId,
       stream: localStream,
       label: displayName + ' (You)',
+      avatarName: displayName,
       picture: participantsMetadata[localClientId]?.picture,
       isHost: participantsMetadata[localClientId]?.role === 'host',
       isLocal: true,
