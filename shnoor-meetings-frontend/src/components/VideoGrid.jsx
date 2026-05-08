@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import VideoPlayer from './VideoPlayer';
 import useActiveSpeaker from '../hooks/useActiveSpeaker';
+import { getCurrentUser, getUserPicture } from '../utils/currentUser';
 
 const VideoGrid = React.memo(({
   localStream,
@@ -14,10 +15,9 @@ const VideoGrid = React.memo(({
   displayName,
   getPeerConnection
 }) => {
-  
-  // Transform data into a stable format for the grid
+  const localUserPicture = getUserPicture(getCurrentUser());
+
   const tiles = useMemo(() => {
-    // 1. Get all remote participants from metadata and any streams that arrive first
     const remoteIds = Array.from(new Set([
       ...Object.keys(participantsMetadata),
       ...Object.keys(remoteStreams),
@@ -30,18 +30,18 @@ const VideoGrid = React.memo(({
         const hasLiveAudio = !!stream?.getAudioTracks?.().some((track) => track.readyState === 'live' && track.enabled);
         const hasLiveVideo = !!stream?.getVideoTracks?.().some((track) => track.readyState === 'live' && track.enabled);
         return ({
-        id: peerId,
-        stream,
-        label: meta.name || 'Participant',
-        avatarName: meta.name || 'Participant',
-        picture: meta.picture,
-        isHost: meta.role === 'host',
-        isLocal: false,
-        isHandRaised: meta.isHandRaised,
-        isAudioEnabled: typeof meta.isAudioEnabled === 'boolean' ? meta.isAudioEnabled : hasLiveAudio,
-        isVideoEnabled: typeof meta.isVideoEnabled === 'boolean' ? meta.isVideoEnabled : hasLiveVideo,
-        hasRemoteVideoTrack: hasLiveVideo,
-        isSharingScreen: meta.isSharingScreen ?? false,
+          id: peerId,
+          stream,
+          label: meta.name || 'Participant',
+          avatarName: meta.name || 'Participant',
+          picture: meta.picture,
+          isHost: meta.role === 'host',
+          isLocal: false,
+          isHandRaised: meta.isHandRaised,
+          isAudioEnabled: typeof meta.isAudioEnabled === 'boolean' ? meta.isAudioEnabled : hasLiveAudio,
+          isVideoEnabled: typeof meta.isVideoEnabled === 'boolean' ? meta.isVideoEnabled : hasLiveVideo,
+          hasRemoteVideoTrack: hasLiveVideo,
+          isSharingScreen: meta.isSharingScreen ?? false,
         });
       });
 
@@ -51,7 +51,7 @@ const VideoGrid = React.memo(({
       stream: localStream,
       label: displayName + ' (You)',
       avatarName: displayName,
-      picture: participantsMetadata[localClientId]?.picture,
+      picture: participantsMetadata[localClientId]?.picture || localUserPicture,
       isHost: participantsMetadata[localClientId]?.role === 'host',
       isLocal: true,
       isHandRaised,
@@ -61,7 +61,7 @@ const VideoGrid = React.memo(({
     };
 
     return [localTile, ...remoteTiles];
-  }, [participantsMetadata, localClientId, localStream, remoteStreams, displayName, isHandRaised, isAudioEnabled, isVideoEnabled, isSharingScreen]);
+  }, [participantsMetadata, localClientId, localStream, remoteStreams, displayName, isHandRaised, isAudioEnabled, isVideoEnabled, isSharingScreen, localUserPicture]);
 
   // Optimized Speaker Detection
   const { dominantSpeakerId, speakingIds, audioLevels } = useActiveSpeaker(tiles, getPeerConnection);

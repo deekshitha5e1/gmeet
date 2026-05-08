@@ -1,13 +1,15 @@
 import React from 'react';
-import { X, Users } from 'lucide-react';
+import { X, Users, UserMinus } from 'lucide-react';
 import ProfileAvatar from './ProfileAvatar';
 
 const ParticipantsList = React.memo(({ 
   participants = {}, 
   joinRequests = [], 
   isHost, 
+  localClientId,
   onAdmit, 
   onDeny, 
+  onRemoveParticipant,
   onClose 
 }) => {
   const waitingIds = new Set(joinRequests.map((request) => request.id));
@@ -61,15 +63,30 @@ const ParticipantsList = React.memo(({
         <div>
           <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-3">In Call</h3>
           <div className="space-y-3">
-            {inCallParticipants.map(([id, meta]) => (
+            {inCallParticipants.map(([id, meta]) => {
+              const canRemove = isHost && id !== localClientId && meta.role !== 'host';
+
+              return (
               <div key={id} className="flex items-center gap-3">
                 <ProfileAvatar name={meta.name} picture={meta.picture} className="w-8 h-8" textClass="text-[10px]" />
-                <div className="flex flex-col">
+                <div className="flex min-w-0 flex-1 flex-col">
                   <span className="text-sm font-medium">{meta.name}</span>
                   <span className="text-[10px] text-gray-500">{meta.role}</span>
                 </div>
+                {canRemove && (
+                  <button
+                    type="button"
+                    onClick={() => onRemoveParticipant?.(id)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-xs font-semibold text-red-200 transition hover:bg-red-500/20 hover:text-red-100"
+                    title={`Remove ${meta.name || 'participant'}`}
+                  >
+                    <UserMinus size={14} />
+                    Remove
+                  </button>
+                )}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

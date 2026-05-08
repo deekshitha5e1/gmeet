@@ -8,7 +8,7 @@ import ChatPanel from '../components/ChatPanel';
 import ParticipantsList from '../components/ParticipantsList';
 import PipPopup from '../components/PipPopup';
 import InPagePip from '../components/InPagePip';
-import { Video, Maximize2, Copy, Check, UserPlus, X, Mail, Loader2 } from 'lucide-react';
+import { Video, Maximize2, UserPlus, X, Mail, Loader2, Share2, MessageCircle, KeyRound, ChevronDown, ShieldCheck } from 'lucide-react';
 import { getCurrentUser } from '../utils/currentUser';
 import { buildApiUrl } from '../utils/api';
 
@@ -18,14 +18,20 @@ const MeetingRoom = () => {
   const [activePanel, setActivePanel] = useState(null); // 'chat' | 'people' | null
   const [isCaptionsOn, setIsCaptionsOn] = useState(false);
   const [captions, setCaptions] = useState('');
-  const [isCopied, setIsCopied] = useState(false);
+  const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
   const [showAddUsers, setShowAddUsers] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteStatus, setInviteStatus] = useState({ type: '', message: '' });
   const [isSendingInvite, setIsSendingInvite] = useState(false);
+  const [showAccessShare, setShowAccessShare] = useState(false);
+  const [selectedAccessParticipant, setSelectedAccessParticipant] = useState('');
+  const [accessRestrictions, setAccessRestrictions] = useState({
+    cannotMuteParticipants: true,
+    cannotStopPresenting: true,
+  });
 
   // The shareable invite link always goes through the lobby so role detection works.
-  const meetingUrl = `${window.location.origin}/meeting/${roomId}`;
+  const meetingUrl = `${window.location.origin}/meeting/${roomId}?role=participant&admitted=true`;
 
   // Role detection for initial hook state
   const currentUser = useMemo(() => getCurrentUser(), []);
@@ -62,8 +68,11 @@ const MeetingRoom = () => {
     sendChatMessage,
     admitParticipant,
     denyParticipant,
+    removeParticipant,
+    grantHostAccess,
     activeJoinRequests,
     isHost,
+    canManageParticipants,
     mediaError,
     localClientId,
     getPeerConnection,
@@ -105,12 +114,46 @@ const MeetingRoom = () => {
 
   const handleAdmit = useCallback((id) => admitParticipant(id), [admitParticipant]);
   const handleDeny = useCallback((id) => denyParticipant(id), [denyParticipant]);
+  const handleRemoveParticipant = useCallback((id) => removeParticipant(id), [removeParticipant]);
+  const accessShareParticipants = useMemo(() => (
+    Object.entries(participantsMetadata)
+      .filter(([id, meta]) => id !== localClientId && meta.role !== 'host')
+      .map(([id, meta]) => ({ id, ...meta }))
+  ), [localClientId, participantsMetadata]);
 
-  const handleCopyLink = useCallback(() => {
-    navigator.clipboard.writeText(meetingUrl);
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
+  const selectedAccessMeta = accessShareParticipants.find((participant) => participant.id === selectedAccessParticipant);
+
+  const handleGrantHostAccess = useCallback(() => {
+    if (!selectedAccessParticipant) return;
+    grantHostAccess(selectedAccessParticipant, accessRestrictions);
+    setShowAccessShare(false);
+    setSelectedAccessParticipant('');
+  }, [accessRestrictions, grantHostAccess, selectedAccessParticipant]);
+
+  useEffect(() => {
+    const handleRemoved = (event) => {
+      if (event.detail?.roomId !== roomId) return;
+      navigate(`/left-meeting/${roomId}`, { replace: true });
+    };
+
+    window.addEventListener('meeting-removed', handleRemoved);
+    return () => window.removeEventListener('meeting-removed', handleRemoved);
+  }, [navigate, roomId]);
+
+  const shareTitle = 'Join my Shnoor meeting';
+  const shareMessage = `Join my Shnoor meeting: ${meetingUrl}`;
+
+  const handleShareByMail = useCallback(() => {
+    const subject = encodeURIComponent(shareTitle);
+    const body = encodeURIComponent(`Hi,\n\nPlease join the meeting using this link:\n${meetingUrl}`);
+    window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=&su=${subject}&body=${body}`, '_blank', 'noopener,noreferrer');
+    setIsShareMenuOpen(false);
   }, [meetingUrl]);
+
+  const handleShareByWhatsApp = useCallback(() => {
+    window.open(`https://wa.me/?text=${encodeURIComponent(shareMessage)}`, '_blank', 'noopener,noreferrer');
+    setIsShareMenuOpen(false);
+  }, [shareMessage]);
 
   const handleSendInvite = useCallback(async (event) => {
     event.preventDefault();
@@ -176,14 +219,44 @@ const MeetingRoom = () => {
              <span className="text-[11px] text-gray-400 font-medium tracking-wide truncate max-w-[150px] lg:max-w-xs">
                {meetingUrl.replace(/^https?:\/\//, '')}
              </span>
-             <button 
-               onClick={handleCopyLink}
-               className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold transition-all transform active:scale-95 ${isCopied ? 'bg-green-500 text-white' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/20'}`}
-               title="Copy meeting link"
-             >
-               {isCopied ? <Check size={12} /> : <Copy size={12} />}
-               {isCopied ? 'COPIED' : 'COPY LINK'}
-             </button>
+             <div className="relative">
+               <button
+                 onClick={() => setIsShareMenuOpen((isOpen) => !isOpen)}
+                 className="flex items-center gap-1.5 rounded-full bg-blue-600 px-3 py-1 text-[10px] font-bold text-white shadow-lg shadow-blue-900/20 transition-all hover:bg-blue-500 active:scale-95"
+                 title="Share meeting link"
+                 aria-expanded={isShareMenuOpen}
+                 aria-haspopup="menu"
+               >
+                 <Share2 size={12} />
+                 SHARE
+               </button>
+
+               {isShareMenuOpen && (
+                 <div
+                   className="absolute right-0 top-full z-40 mt-2 w-48 overflow-hidden rounded-xl border border-white/10 bg-gray-900 py-2 shadow-2xl shadow-black/40"
+                   role="menu"
+                 >
+                   <button
+                     type="button"
+                     onClick={handleShareByMail}
+                     className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-gray-100 transition hover:bg-white/10"
+                     role="menuitem"
+                   >
+                     <Mail size={16} className="text-blue-300" />
+                     Mail
+                   </button>
+                   <button
+                     type="button"
+                     onClick={handleShareByWhatsApp}
+                     className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-gray-100 transition hover:bg-white/10"
+                     role="menuitem"
+                   >
+                     <MessageCircle size={16} className="text-green-300" />
+                     WhatsApp
+                   </button>
+                 </div>
+               )}
+             </div>
           </div>
 
           <div className="md:hidden h-4 w-[1px] bg-gray-800 mx-2" />
@@ -191,16 +264,32 @@ const MeetingRoom = () => {
         </div>
 
         {isHost && (
-          <button
-            onClick={() => {
-              setShowAddUsers(true);
-              setInviteStatus({ type: '', message: '' });
-            }}
-            className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-950/20 transition hover:bg-blue-500 active:scale-95"
-          >
-            <UserPlus size={16} />
-            Add users
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setShowAccessShare(true);
+                setSelectedAccessParticipant('');
+                setAccessRestrictions({
+                  cannotMuteParticipants: true,
+                  cannotStopPresenting: true,
+                });
+              }}
+              className="inline-flex items-center gap-2 rounded-full bg-gray-800 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/10 transition hover:bg-gray-700 active:scale-95"
+            >
+              <KeyRound size={16} />
+              Access share
+            </button>
+            <button
+              onClick={() => {
+                setShowAddUsers(true);
+                setInviteStatus({ type: '', message: '' });
+              }}
+              className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-950/20 transition hover:bg-blue-500 active:scale-95"
+            >
+              <UserPlus size={16} />
+              Add users
+            </button>
+          </div>
         )}
       </header>
 
@@ -258,15 +347,17 @@ const MeetingRoom = () => {
           <ParticipantsList 
             participants={participantsMetadata}
             joinRequests={activeJoinRequests}
-            isHost={isHost}
+            isHost={canManageParticipants}
+            localClientId={localClientId}
             onAdmit={handleAdmit}
             onDeny={handleDeny}
+            onRemoveParticipant={handleRemoveParticipant}
             onClose={() => setActivePanel(null)}
           />
         )}
 
         {/* Floating join-request banner – visible even when People panel is closed */}
-        {isHost && activeJoinRequests.length > 0 && activePanel !== 'people' && pipMode !== PIP_MODES.MINIMIZED && (
+        {canManageParticipants && activeJoinRequests.length > 0 && activePanel !== 'people' && pipMode !== PIP_MODES.MINIMIZED && (
           <div className="absolute top-16 md:top-4 right-2 md:right-4 z-30 flex flex-col gap-2 w-[calc(100%-1rem)] md:max-w-xs animate-in slide-in-from-top-4 duration-300">
             {activeJoinRequests.map(req => (
               <div
@@ -352,6 +443,112 @@ const MeetingRoom = () => {
           onLeaveCall={handleLeave}
           onMaximize={exitPip}
         />
+      )}
+
+      {showAccessShare && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-gray-700 bg-gray-900 p-6 text-white shadow-2xl">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="flex items-center gap-2 text-lg font-bold">
+                  <KeyRound size={18} className="text-blue-300" />
+                  Access share
+                </h2>
+                <p className="mt-1 text-sm text-gray-400">Choose one participant and share limited host access.</p>
+              </div>
+              <button
+                onClick={() => setShowAccessShare(false)}
+                className="rounded-full p-2 text-gray-400 transition hover:bg-gray-800 hover:text-white"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">Participants</h3>
+                <div className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-gray-800 bg-gray-950 p-2">
+                  {accessShareParticipants.length === 0 ? (
+                    <p className="px-3 py-4 text-center text-sm text-gray-500">No participants are available for access share.</p>
+                  ) : (
+                    accessShareParticipants.map((participant) => (
+                      <button
+                        key={participant.id}
+                        type="button"
+                        onClick={() => setSelectedAccessParticipant((current) => current === participant.id ? '' : participant.id)}
+                        className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition ${
+                          selectedAccessParticipant === participant.id
+                            ? 'bg-blue-600/20 text-white ring-1 ring-blue-500/50'
+                            : 'text-gray-200 hover:bg-gray-800'
+                        }`}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold">{participant.name || 'Participant'}</span>
+                          <span className="block text-xs text-gray-500">{participant.hostAccess ? 'Host access shared' : 'Participant'}</span>
+                        </span>
+                        <ChevronDown
+                          size={16}
+                          className={`shrink-0 transition ${selectedAccessParticipant === participant.id ? 'rotate-180 text-blue-300' : 'text-gray-500'}`}
+                        />
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {selectedAccessMeta && (
+                <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-blue-100">
+                    <ShieldCheck size={16} />
+                    Restrictions for {selectedAccessMeta.name || 'participant'}
+                  </div>
+                  <div className="space-y-3">
+                    <label className="flex items-start gap-3 rounded-lg bg-gray-950/70 p-3 text-sm text-gray-200">
+                      <input
+                        type="checkbox"
+                        checked={accessRestrictions.cannotMuteParticipants}
+                        onChange={(event) => setAccessRestrictions((current) => ({
+                          ...current,
+                          cannotMuteParticipants: event.target.checked,
+                        }))}
+                        className="mt-1 h-4 w-4 rounded border-gray-600 bg-gray-900"
+                      />
+                      <span>
+                        <span className="block font-semibold">Cannot mute or unmute participants mic</span>
+                        <span className="text-xs text-gray-500">This access does not allow controlling other participants audio.</span>
+                      </span>
+                    </label>
+                    <label className="flex items-start gap-3 rounded-lg bg-gray-950/70 p-3 text-sm text-gray-200">
+                      <input
+                        type="checkbox"
+                        checked={accessRestrictions.cannotStopPresenting}
+                        onChange={(event) => setAccessRestrictions((current) => ({
+                          ...current,
+                          cannotStopPresenting: event.target.checked,
+                        }))}
+                        className="mt-1 h-4 w-4 rounded border-gray-600 bg-gray-900"
+                      />
+                      <span>
+                        <span className="block font-semibold">Cannot stop presenting</span>
+                        <span className="text-xs text-gray-500">This access does not allow stopping another person screen share.</span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleGrantHostAccess}
+                disabled={!selectedAccessParticipant}
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <ShieldCheck size={16} />
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showAddUsers && (

@@ -1,4 +1,5 @@
 import uuid
+import json
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from core.connection_manager import manager
@@ -51,6 +52,26 @@ def _parse_email_list(raw):
     except Exception:
         pass
     return [email.strip().lower() for email in str(raw).split(",") if email.strip()]
+
+def _remember_invited_email(room_id: str, email: str):
+    ensure_meeting_record(meeting_id=room_id)
+    conn = get_db_connection()
+    if not conn:
+        return
+    try:
+        cursor = get_dict_cursor(conn)
+        p = "%s" if get_db_type() == "postgres" else "?"
+        cursor.execute(f"SELECT invited_emails FROM meetings WHERE id = {p}", (room_id,))
+        row = cursor.fetchone()
+        invited = set(_parse_email_list(row.get("invited_emails") if row else None))
+        invited.add(email)
+        cursor.execute(
+            f"UPDATE meetings SET invited_emails = {p} WHERE id = {p}",
+            (json.dumps(sorted(invited)), room_id)
+        )
+        conn.commit()
+    finally:
+        release_db_connection(conn)
 
 @router.post("/create", response_model=CreateMeetingResponse)
 async def create_meeting(payload: CreateMeetingRequest | None = None):
@@ -132,6 +153,7 @@ async def check_meeting(room_id: str):
                 release_db_connection(conn)
 
         host_email = (meeting.get("host_email") or calendar_host_email or "").strip().lower() or None
+        invited_emails.extend(_parse_email_list(meeting.get("invited_emails")))
 
         return {
             "room_id": room_id,
@@ -160,13 +182,16 @@ async def invite_user_to_meeting(room_id: str, payload: InviteUserRequest):
     if not meeting:
         ensure_meeting_record(meeting_id=room_id)
 
+    _remember_invited_email(room_id, email)
+
     try:
         from core.reminders import send_room_invitation_email
         send_room_invitation_email(
             room_id=room_id,
             guest_email=email,
             host_name=payload.host_name,
-            host_email=payload.host_email
+            host_email=payload.host_email,
+            frontend_origin=payload.frontend_origin,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to send invite email: {exc}")

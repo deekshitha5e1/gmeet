@@ -22,12 +22,14 @@ const VideoPlayer = React.memo(({
   const videoRef = useRef(null);
   const prevIsSharingRef = useRef(isSharingScreen);
   const [hasRenderableFrame, setHasRenderableFrame] = useState(false);
+  const [hasVisibleVideoFrame, setHasVisibleVideoFrame] = useState(false);
   const [trackStateVersion, setTrackStateVersion] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
     let frameCheckId = null;
     let frameRequestId = null;
+    let blackFrameCount = 0;
     const video = videoRef.current;
     const justStartedSharing = isSharingScreen && !prevIsSharingRef.current;
     prevIsSharingRef.current = isSharingScreen;
@@ -35,11 +37,46 @@ const VideoPlayer = React.memo(({
     const hasLiveAudioTrack = !!stream?.getAudioTracks?.().some(t => t.readyState === 'live');
     const shouldPlay = isAudioEnabled || isVideoEnabled || isSharingScreen || hasLiveAudioTrack;
     setHasRenderableFrame(false);
+    setHasVisibleVideoFrame(false);
 
     if (video && stream && shouldPlay) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 24;
+      canvas.height = 24;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+
+      const updateVisibleFrameState = () => {
+        if (!context || isSharingScreen || video.videoWidth === 0 || video.videoHeight === 0) {
+          setHasVisibleVideoFrame(isSharingScreen);
+          return;
+        }
+
+        try {
+          context.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+          let totalBrightness = 0;
+
+          for (let index = 0; index < pixels.length; index += 4) {
+            totalBrightness += pixels[index] + pixels[index + 1] + pixels[index + 2];
+          }
+
+          const averageBrightness = totalBrightness / (pixels.length / 4) / 3;
+          if (averageBrightness < 8) {
+            blackFrameCount += 1;
+          } else {
+            blackFrameCount = 0;
+          }
+
+          setHasVisibleVideoFrame(blackFrameCount < 3);
+        } catch {
+          setHasVisibleVideoFrame(true);
+        }
+      };
+
       const updateRenderableState = () => {
         if (!isMounted) return;
         setHasRenderableFrame(video.videoWidth > 0 && video.videoHeight > 0);
+        updateVisibleFrameState();
       };
 
       const scheduleFrameCheck = () => {
@@ -114,6 +151,7 @@ const VideoPlayer = React.memo(({
     ? !!stream
     : isVideoEnabled && (hasLiveVideo || hasRemoteVideoTrack);
   const showVideo = shouldAttemptVideo && hasRenderableFrame;
+  const shouldShowVideo = showVideo && (isSharingScreen || hasVisibleVideoFrame);
   const shouldRenderMediaElement = shouldAttemptVideo || hasPlayableAudio;
 
   return (
@@ -122,7 +160,7 @@ const VideoPlayer = React.memo(({
     }`}>
       
       <div className={`absolute inset-0 z-10 flex items-center justify-center bg-gray-900 transition-opacity duration-200 ${
-        showVideo ? 'opacity-0 pointer-events-none' : 'opacity-100'
+        shouldShowVideo ? 'opacity-0 pointer-events-none' : 'opacity-100'
       }`}>
         <div className="relative flex items-center justify-center">
           {isSpeaking && isAudioEnabled && (
@@ -154,7 +192,7 @@ const VideoPlayer = React.memo(({
             (featured || isSharingScreen) ? 'object-contain' : 'object-cover'
           } ${
             (isLocal && !isSharingScreen) ? 'transform -scale-x-100' : ''
-          } ${showVideo ? 'opacity-100' : 'opacity-0'}`}
+          } ${shouldShowVideo ? 'opacity-100' : 'opacity-0'}`}
         />
       )}
 

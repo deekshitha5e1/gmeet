@@ -45,3 +45,14 @@ export function ensureFrontendUserId(user) {
 export function getCurrentUser() {
   return ensureFrontendUserId(parseStoredUser());
 }
+
+export function getUserPicture(user) {
+  return (
+    user?.picture ||
+    user?.photoURL ||
+    user?.profilePic ||
+    user?.avatar ||
+    user?.photo ||
+    ''
+  );
+}

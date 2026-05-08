@@ -661,7 +661,7 @@ def send_meeting_scheduled_email(event: dict):
     send_invitation_emails(event)
 
 
-def send_room_invitation_email(room_id: str, guest_email: str, host_name: str = "", host_email: str = ""):
+def send_room_invitation_email(room_id: str, guest_email: str, host_name: str = "", host_email: str = "", frontend_origin: str = ""):
     """Send a premium invitation email for a live meeting room."""
     title = f"Live Meeting: {room_id[:8]}"
     subject = "📩 Invitation: Shnoor Meeting"
@@ -669,8 +669,8 @@ def send_room_invitation_email(room_id: str, guest_email: str, host_name: str = 
     host_display = (host_name or host_email or "An organizer").strip()
     intro_line = f"<strong>{host_display}</strong> has invited you to join a live meeting on Shnoor Meetings."
     
-    frontend_url = (os.getenv("FRONTEND_URL") or FRONTEND_URL).rstrip("/")
-    meet_link = f"{frontend_url}/meeting/{room_id}?role=participant&email={guest_email}"
+    frontend_url = (frontend_origin or os.getenv("FRONTEND_URL") or FRONTEND_URL).rstrip("/")
+    meet_link = f"{frontend_url}/meeting/{room_id}?role=participant&admitted=true&email={guest_email}"
     
     plain_text, html_body = _build_email_html(
         title=title,

@@ -200,6 +200,7 @@ def _ensure_tables():
                 host_id {uuid_type} REFERENCES users(id),
                 title TEXT,
                 status TEXT DEFAULT 'inactive',
+                invited_emails TEXT,
                 started_at TIMESTAMPTZ,
                 ended_at TIMESTAMPTZ,
                 created_at TIMESTAMPTZ DEFAULT {now_func}
@@ -280,6 +281,13 @@ def _ensure_tables():
             ("participant_emails", "TEXT"),
         ]
         if _db_type == "postgres":
+            cursor.execute("""
+                DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='meetings' AND column_name='invited_emails') THEN
+                        ALTER TABLE meetings ADD COLUMN invited_emails TEXT;
+                    END IF;
+                END $$;
+            """)
             for col_name, col_type in pg_new_cols:
                 cursor.execute(f"""
                     DO $$ BEGIN
@@ -289,6 +297,11 @@ def _ensure_tables():
                     END $$;
                 """)
         else:
+            cursor.execute("PRAGMA table_info(meetings)")
+            meeting_cols = [row[1] for row in cursor.fetchall()]
+            if "invited_emails" not in meeting_cols:
+                cursor.execute("ALTER TABLE meetings ADD COLUMN invited_emails TEXT")
+
             # SQLite: check PRAGMA then alter
             for col_name, col_type in sqlite_new_cols:
                 cursor.execute("PRAGMA table_info(calendar_events)")

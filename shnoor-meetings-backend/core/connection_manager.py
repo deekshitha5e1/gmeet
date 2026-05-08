@@ -16,6 +16,8 @@ class ConnectionManager:
         self.waiting_requests: Dict[str, Dict[str, dict]] = {}
         # meeting_id -> set of accepted client_ids
         self.accepted_participants: Dict[str, Set[str]] = {}
+        # meeting_id -> {client_id: restriction metadata}
+        self.shared_host_access: Dict[str, Dict[str, dict]] = {}
 
     async def connect(self, websocket: WebSocket, meeting_id: str, role: str, client_id: str):
         await websocket.accept()
@@ -28,6 +30,8 @@ class ConnectionManager:
             self.user_records[meeting_id] = {}
         if meeting_id not in self.accepted_participants:
             self.accepted_participants[meeting_id] = set()
+        if meeting_id not in self.shared_host_access:
+            self.shared_host_access[meeting_id] = {}
 
         # Handle existing connections for the same client_id (reconnect logic)
         for ws, existing_cid in list(self.user_records.get(meeting_id, {}).items()):
@@ -180,7 +184,7 @@ class ConnectionManager:
         sent_count = 0
         if meeting_id in self.connection_metadata:
             for ws, meta in self.connection_metadata[meeting_id].items():
-                if meta.get("role") == "host":
+                if meta.get("role") in ("host", "co-host"):
                     try:
                         await ws.send_json(message)
                         sent_count += 1
@@ -202,6 +206,13 @@ class ConnectionManager:
                     except:
                         pass
         return False
+
+    def get_client_websocket(self, meeting_id: str, client_id: str):
+        if meeting_id in self.user_records:
+            for ws, stored_id in self.user_records[meeting_id].items():
+                if stored_id == client_id:
+                    return ws
+        return None
 
     def add_waiting_request(self, meeting_id: str, client_id: str, name: str, email: str = None, picture: str = None):
         if meeting_id not in self.waiting_requests:
@@ -227,6 +238,17 @@ class ConnectionManager:
 
     def is_participant_accepted(self, meeting_id: str, client_id: str):
         return client_id in self.accepted_participants.get(meeting_id, set())
+
+    def grant_host_access(self, meeting_id: str, client_id: str, restrictions: dict):
+        if meeting_id not in self.shared_host_access:
+            self.shared_host_access[meeting_id] = {}
+        self.shared_host_access[meeting_id][client_id] = restrictions or {}
+
+    def has_shared_host_access(self, meeting_id: str, client_id: str):
+        return client_id in self.shared_host_access.get(meeting_id, {})
+
+    def get_shared_host_access(self, meeting_id: str, client_id: str):
+        return self.shared_host_access.get(meeting_id, {}).get(client_id)
 
     def register_meeting(self, room_id: str, host_id: str = None, host_email: str = None, host_name: str = None):
         """Registers a meeting manually if needed."""

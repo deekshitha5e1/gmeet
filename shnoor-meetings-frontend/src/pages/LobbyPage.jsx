@@ -18,9 +18,12 @@ export default function LobbyPage() {
   const videoRef = useRef(null);
 
   // ── Role detection (synchronous, from sessionStorage/localStorage) ──────────
-  const roleFromLink = new URLSearchParams(location.search).get('role');
-  const emailFromLink = new URLSearchParams(location.search).get('email');
+  const searchParams = new URLSearchParams(location.search);
+  const roleFromLink = searchParams.get('role');
+  const emailFromLink = searchParams.get('email');
+  const admittedFromLink = ['true', '1', 'yes'].includes((searchParams.get('admitted') || '').toLowerCase());
   const storedRole = sessionStorage.getItem(`meeting_role_${roomId}`);
+  const storedAdmission = sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true';
   const normalizedCurrentEmail = (emailFromLink || currentUser?.email || '').trim().toLowerCase();
   const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
   const storedHostFlag =
@@ -43,6 +46,8 @@ export default function LobbyPage() {
   const [participantName, setParticipantName] = useState(storedName);
   const [toastMessage, setToastMessage] = useState(null);
   const [isWaiting, setIsWaiting] = useState(false);
+  const [hasDirectInviteAccess, setHasDirectInviteAccess] = useState(admittedFromLink || storedAdmission);
+  const [isCheckingInviteAccess, setIsCheckingInviteAccess] = useState(Boolean(normalizedCurrentEmail && !admittedFromLink && !storedAdmission));
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showEffectsModule, setShowEffectsModule] = useState(false);
   const [videoEffect, setVideoEffect] = useState('none');
@@ -60,6 +65,14 @@ export default function LobbyPage() {
     requestToJoin,
   } = useWebRTC(roomId, { acquireMedia: false, autoJoin: false, initialRole: resolvedRole });
 
+  useEffect(() => {
+    if (!roomId || !admittedFromLink || roleFromLink === 'host') return;
+    sessionStorage.setItem(`meeting_role_${roomId}`, 'participant');
+    sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
+    if (emailFromLink) sessionStorage.setItem(`meeting_email_${roomId}`, emailFromLink.trim().toLowerCase());
+    setHasDirectInviteAccess(true);
+  }, [admittedFromLink, emailFromLink, roleFromLink, roomId]);
+
   // ── Toast helper ─────────────────────────────────────────────────────────────
   const showToast = useCallback((msg) => {
     setToastMessage(msg);
@@ -70,6 +83,7 @@ export default function LobbyPage() {
   // ── Async host verification from backend ─────────────────────────────────────
   useEffect(() => {
     if (!roomId) return;
+    setIsCheckingInviteAccess(Boolean(normalizedCurrentEmail && !admittedFromLink && !storedAdmission));
     const verify = async () => {
       try {
         const res = await fetch(buildApiUrl(`/api/meetings/${roomId}`));
@@ -96,9 +110,10 @@ export default function LobbyPage() {
           
           if (isInvited) {
             sessionStorage.setItem(`meeting_role_${roomId}`, 'participant');
+            sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
             if (normalizedCurrentEmail) sessionStorage.setItem(`meeting_email_${roomId}`, normalizedCurrentEmail);
+            setHasDirectInviteAccess(true);
             setResolvedRole('participant');
-            // Auto-join and Auto-admit removed as per user request. 
           } else if (!storedHostFlag) {
             sessionStorage.setItem(`meeting_role_${roomId}`, 'participant');
             if (normalizedCurrentEmail) sessionStorage.setItem(`meeting_email_${roomId}`, normalizedCurrentEmail);
@@ -107,6 +122,8 @@ export default function LobbyPage() {
         }
       } catch (err) {
         console.error('Failed to verify host/invitation status:', err);
+      } finally {
+        setIsCheckingInviteAccess(false);
       }
     };
     verify();
@@ -346,10 +363,10 @@ export default function LobbyPage() {
               </div>
             ) : (
               <>
-                <button onClick={sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true' ? joinMeeting : handleAskToJoin} 
-                  disabled={isWaiting || !participantName.trim() || !isWSConnected}
+                <button onClick={hasDirectInviteAccess ? joinMeeting : handleAskToJoin} 
+                  disabled={isCheckingInviteAccess || isWaiting || !participantName.trim() || !isWSConnected}
                   className={`w-full font-semibold py-3.5 rounded-full shadow-lg transition-all transform active:scale-95 text-md ${isWaiting ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-100'} disabled:opacity-50 disabled:cursor-not-allowed`}>
-                  {sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true' ? (isWSConnected ? 'Join meeting' : 'Connecting...') : (isWaiting ? 'Asking to join…' : (isWSConnected ? 'Ask to join' : 'Connecting...'))}
+                  {isCheckingInviteAccess ? 'Checking invitation...' : (hasDirectInviteAccess ? (isWSConnected ? 'Join the meet' : 'Connecting...') : (isWaiting ? 'Asking to join...' : (isWSConnected ? 'Ask to join' : 'Connecting...')))}
                 </button>
 
                 {isWaiting && (

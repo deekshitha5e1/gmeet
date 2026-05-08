@@ -6,7 +6,7 @@ import {
   upsertCallHistoryEntry,
 } from '../utils/meetingUtils';
 import { buildApiUrl, buildWebSocketUrl } from '../utils/api';
-import { getCurrentUser } from '../utils/currentUser';
+import { getCurrentUser, getUserPicture } from '../utils/currentUser';
 
 const ICE_SERVERS = {
   iceServers: [
@@ -70,6 +70,7 @@ export function useWebRTC(roomId, options = {}) {
   const [mediaError, setMediaError] = useState(null);
   const [activeJoinRequests, setActiveJoinRequests] = useState([]);
   const [isWSConnected, setIsWSConnected] = useState(false);
+  const [sharedHostAccess, setSharedHostAccess] = useState(null);
   const initialMediaState = useRef(getPreJoinMediaState(roomId));
   const [isAudioEnabled, setIsAudioEnabled] = useState(initialMediaState.current.audioEnabled);
   const [isVideoEnabled, setIsVideoEnabled] = useState(initialMediaState.current.videoEnabled);
@@ -176,15 +177,17 @@ export function useWebRTC(roomId, options = {}) {
     sendSignalingMessage({
       type: 'participant-update',
       name: displayName.current,
-      picture: currentUser.current?.picture || null,
-      role: isHost.current ? 'host' : 'participant',
+      picture: getUserPicture(currentUser.current) || null,
+      role: isHost.current ? 'host' : (sharedHostAccess ? 'host' : 'participant'),
+      hostAccess: Boolean(sharedHostAccess),
+      hostAccessRestrictions: sharedHostAccess?.restrictions || null,
       isHandRaised,
       isSharingScreen,
       isAudioEnabled,
       isVideoEnabled,
       ...extraState,
     });
-  }, [isAudioEnabled, isHandRaised, isSharingScreen, isVideoEnabled, sendSignalingMessage]);
+  }, [isAudioEnabled, isHandRaised, isSharingScreen, isVideoEnabled, sendSignalingMessage, sharedHostAccess]);
 
   const publishLocalStream = useCallback((nextStream, { camera = false } = {}) => {
     currentOutgoingStreamRef.current = nextStream || null;
@@ -281,8 +284,10 @@ export function useWebRTC(roomId, options = {}) {
       [clientId.current]: {
         ...prev[clientId.current],
         name: displayName.current,
-        picture: currentUser.current?.picture || null,
-        role: isHost.current ? 'host' : 'participant',
+        picture: getUserPicture(currentUser.current) || null,
+        role: isHost.current ? 'host' : (sharedHostAccess ? 'host' : 'participant'),
+        hostAccess: Boolean(sharedHostAccess),
+        hostAccessRestrictions: sharedHostAccess?.restrictions || null,
         isHandRaised: false,
         isSharingScreen: false,
         isAudioEnabled,
@@ -290,7 +295,7 @@ export function useWebRTC(roomId, options = {}) {
       },
     }));
 
-    startSessionTracking(clientId.current, displayName.current, isHost.current ? 'host' : 'participant');
+    startSessionTracking(clientId.current, displayName.current, isHost.current ? 'host' : (sharedHostAccess ? 'host' : 'participant'));
 
     const user = currentUser.current;
     const payload = {
@@ -299,8 +304,10 @@ export function useWebRTC(roomId, options = {}) {
       firebase_uid: user?.firebaseUid || null,
       name: sessionStorage.getItem(`meeting_name_${roomId}`) || user?.name || 'Participant',
       email: getEmailFromUrl() || user?.email || sessionStorage.getItem(`meeting_email_${roomId}`) || null,
-      picture: user?.picture || null,
-      role: isHost.current ? 'host' : 'participant',
+      picture: getUserPicture(user) || null,
+      role: isHost.current ? 'host' : (sharedHostAccess ? 'host' : 'participant'),
+      hostAccess: Boolean(sharedHostAccess),
+      hostAccessRestrictions: sharedHostAccess?.restrictions || null,
       admitted: !isHost.current && sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true',
       isAudioEnabled,
       isVideoEnabled,
@@ -314,7 +321,7 @@ export function useWebRTC(roomId, options = {}) {
     if (isHost.current) {
       sendSignalingMessage({ type: 'host_join' });
     }
-  }, [autoJoin, roomId, sendSignalingMessage, startSessionTracking]);
+  }, [autoJoin, roomId, sendSignalingMessage, sharedHostAccess, startSessionTracking]);
 
   const createPeerConnection = useCallback((peerId, stream, { addInitialTransceivers = true } = {}) => {
     if (!peerId) return null;
@@ -418,6 +425,29 @@ export function useWebRTC(roomId, options = {}) {
       window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
       return;
     }
+    if (type === 'removed-from-meeting') {
+      sessionStorage.removeItem(`meeting_admitted_${roomId}`);
+      window.dispatchEvent(new CustomEvent('meeting-removed', { detail: { roomId } }));
+      return;
+    }
+    if (type === 'host-access-granted') {
+      const restrictions = data.restrictions || {};
+      setSharedHostAccess({ grantedBy: sender, restrictions });
+      sessionStorage.setItem(`meeting_shared_host_access_${roomId}`, JSON.stringify(restrictions));
+      setParticipantsMetadata((prev) => ({
+        ...prev,
+        [clientId.current]: {
+          ...prev[clientId.current],
+          name: displayName.current,
+          picture: getUserPicture(currentUser.current) || null,
+          role: 'host',
+          hostAccess: true,
+          hostAccessRestrictions: restrictions,
+        },
+      }));
+      window.dispatchEvent(new CustomEvent('meeting-host-access-granted', { detail: { roomId, restrictions } }));
+      return;
+    }
 
     if (peerId === clientId.current) {
       return;
@@ -443,6 +473,8 @@ export function useWebRTC(roomId, options = {}) {
             name: data.name || prev[peerId]?.name || 'Participant',
             picture: data.picture || prev[peerId]?.picture || null,
             role: data.role || prev[peerId]?.role || 'participant',
+            hostAccess: typeof data.hostAccess === 'boolean' ? data.hostAccess : prev[peerId]?.hostAccess,
+            hostAccessRestrictions: data.hostAccessRestrictions || prev[peerId]?.hostAccessRestrictions,
             isHandRaised: prev[peerId]?.isHandRaised || false,
             isSharingScreen: prev[peerId]?.isSharingScreen || false,
             isVideoEnabled: data.isVideoEnabled ?? prev[peerId]?.isVideoEnabled ?? true,
@@ -601,6 +633,8 @@ export function useWebRTC(roomId, options = {}) {
             name: data.name || prev[peerId]?.name || 'Participant',
             picture: data.picture || prev[peerId]?.picture || null,
             role: data.role || prev[peerId]?.role || 'participant',
+            hostAccess: typeof data.hostAccess === 'boolean' ? data.hostAccess : prev[peerId]?.hostAccess,
+            hostAccessRestrictions: data.hostAccessRestrictions || prev[peerId]?.hostAccessRestrictions,
             isHandRaised: typeof data.isHandRaised === 'boolean' ? data.isHandRaised : prev[peerId]?.isHandRaised,
             isSharingScreen: typeof data.isSharingScreen === 'boolean' ? data.isSharingScreen : prev[peerId]?.isSharingScreen,
             isVideoEnabled: typeof data.isVideoEnabled === 'boolean' ? data.isVideoEnabled : prev[peerId]?.isVideoEnabled,
@@ -615,7 +649,7 @@ export function useWebRTC(roomId, options = {}) {
         console.log('[WebRTC] Join request received:', data);
         // Fallback: If we get a join request, we should probably check if we ARE the host 
         // even if the ref is slightly behind, or just trust the backend routed it to us for a reason.
-        if (isHost.current || computeIsHost()) {
+        if (isHost.current || computeIsHost() || sharedHostAccess) {
           const requester = data.user || data;
           const reqId = requester.id || peerId;
 
@@ -630,7 +664,7 @@ export function useWebRTC(roomId, options = {}) {
               {
                 id: reqId,
                 name: requester.name || 'Participant',
-                picture: requester.picture || null,
+                picture: getUserPicture(requester) || requester.picture || null,
               },
             ];
           });
@@ -641,7 +675,7 @@ export function useWebRTC(roomId, options = {}) {
 
       case 'waiting-room-sync':
         console.log('[WebRTC] Waiting room sync received:', data.requests);
-        if (isHost.current || computeIsHost()) {
+        if (isHost.current || computeIsHost() || sharedHostAccess) {
           setActiveJoinRequests(Array.isArray(data.requests) ? data.requests : []);
         }
         break;
@@ -658,6 +692,7 @@ export function useWebRTC(roomId, options = {}) {
     roomId,
     renegotiatePeer,
     sendSignalingMessage,
+    sharedHostAccess,
     startSessionTracking,
     syncParticipantState,
   ]);
@@ -825,6 +860,55 @@ export function useWebRTC(roomId, options = {}) {
     }
   }, [roomId, sendSignalingMessage]);
 
+  const removeParticipant = useCallback((participantId) => {
+    if (!participantId || participantId === clientId.current || (!isHost.current && !computeIsHost() && !sharedHostAccess)) {
+      return;
+    }
+
+    sendSignalingMessage({ type: 'remove-participant', target: participantId });
+
+    if (peerConnections.current[participantId]) {
+      peerConnections.current[participantId].close();
+      delete peerConnections.current[participantId];
+    }
+
+    setRemoteStreams((prev) => {
+      const nextStreams = { ...prev };
+      delete nextStreams[participantId];
+      return nextStreams;
+    });
+
+    setParticipantsMetadata((prev) => {
+      const nextMetadata = { ...prev };
+      delete nextMetadata[participantId];
+      return nextMetadata;
+    });
+
+    endSessionTracking(participantId);
+  }, [computeIsHost, endSessionTracking, sendSignalingMessage, sharedHostAccess]);
+
+  const grantHostAccess = useCallback((participantId, restrictions = {}) => {
+    if (!participantId || participantId === clientId.current || (!isHost.current && !computeIsHost())) {
+      return;
+    }
+
+    sendSignalingMessage({
+      type: 'share-host-access',
+      target: participantId,
+      restrictions,
+    });
+
+    setParticipantsMetadata((prev) => ({
+      ...prev,
+      [participantId]: {
+        ...prev[participantId],
+        role: 'host',
+        hostAccess: true,
+        hostAccessRestrictions: restrictions,
+      },
+    }));
+  }, [computeIsHost, sendSignalingMessage]);
+
   const requestToJoin = useCallback((name = displayName.current) => {
     sessionStorage.setItem(`meeting_name_${roomId}`, name);
     displayName.current = name;
@@ -839,13 +923,13 @@ export function useWebRTC(roomId, options = {}) {
         id: clientId.current,
         name,
         email: getEmailFromUrl() || currentUser.current?.email || sessionStorage.getItem(`meeting_email_${roomId}`) || null,
-        picture: currentUser.current?.picture || null
+        picture: getUserPicture(currentUser.current) || null
       }
     });
   }, [roomId, sendSignalingMessage]);
 
   const refreshWaitingRoom = useCallback(async () => {
-    if (!isHost.current && !computeIsHost()) {
+    if (!isHost.current && !computeIsHost() && !sharedHostAccess) {
       return;
     }
 
@@ -860,17 +944,17 @@ export function useWebRTC(roomId, options = {}) {
     } catch (error) {
       console.warn('[WebRTC] Failed to refresh waiting room:', error);
     }
-  }, [computeIsHost, roomId]);
+  }, [computeIsHost, roomId, sharedHostAccess]);
 
   useEffect(() => {
-    if (!isHostState) {
+    if (!isHostState && !sharedHostAccess) {
       return undefined;
     }
 
     refreshWaitingRoom();
     const intervalId = window.setInterval(refreshWaitingRoom, 2000);
     return () => window.clearInterval(intervalId);
-  }, [isHostState, refreshWaitingRoom]);
+  }, [isHostState, refreshWaitingRoom, sharedHostAccess]);
 
   const toggleVideo = useCallback(async () => {
     // Check for a real camera track (not canvas dummy) in originalStream
@@ -1046,13 +1130,15 @@ export function useWebRTC(roomId, options = {}) {
     sendSignalingMessage({
       type: 'participant-update',
       name: displayName.current,
-      role: isHost.current ? 'host' : 'participant',
+      role: isHost.current ? 'host' : (sharedHostAccess ? 'co-host' : 'participant'),
+      hostAccess: Boolean(sharedHostAccess),
+      hostAccessRestrictions: sharedHostAccess?.restrictions || null,
       isHandRaised: nextState,
       isSharingScreen,
       isAudioEnabled,
       isVideoEnabled,
     });
-  }, [isAudioEnabled, isHandRaised, isSharingScreen, isVideoEnabled, sendSignalingMessage]);
+  }, [isAudioEnabled, isHandRaised, isSharingScreen, isVideoEnabled, sendSignalingMessage, sharedHostAccess]);
 
   const sendChatMessage = useCallback((text) => {
     sendSignalingMessage({
@@ -1080,9 +1166,13 @@ export function useWebRTC(roomId, options = {}) {
     sendChatMessage,
     admitParticipant,
     denyParticipant,
+    removeParticipant,
+    grantHostAccess,
     requestToJoin,
     activeJoinRequests,
     isHost: isHostState,
+    sharedHostAccess,
+    canManageParticipants: isHostState || Boolean(sharedHostAccess),
     mediaError,
     joinRoom,
     displayName: displayName.current,

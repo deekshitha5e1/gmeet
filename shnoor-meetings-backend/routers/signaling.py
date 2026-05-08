@@ -335,7 +335,7 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
                 continue
 
             if msg_type in ["admit", "accept_user", "deny"]:
-                if role != "host":
+                if role != "host" and not manager.has_shared_host_access(meeting_id, cid):
                     logger.warning(
                         "Ignoring %s from non-host client %s in meeting %s",
                         msg_type,
@@ -358,6 +358,81 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str, role_or_id: 
                         "meetingId": meeting_id,
                         "admitted": response_type == "accepted"
                     })
+                continue
+
+            if msg_type == "remove-participant":
+                if role != "host" and not manager.has_shared_host_access(meeting_id, cid):
+                    logger.warning(
+                        "Ignoring remove-participant from non-host client %s in meeting %s",
+                        cid,
+                        meeting_id,
+                    )
+                    continue
+
+                target_id = data.get("target")
+                if not target_id or target_id == cid:
+                    continue
+
+                target_ws = manager.get_client_websocket(meeting_id, target_id)
+                if not target_ws:
+                    continue
+
+                await manager.send_to_client(meeting_id, target_id, {
+                    "type": "removed-from-meeting",
+                    "sender": cid,
+                    "meetingId": meeting_id,
+                })
+
+                manager.disconnect(target_ws, meeting_id)
+                manager.remove_waiting_request(meeting_id, target_id)
+                await sync_waiting_room(meeting_id)
+                await manager.broadcast_to_all(meeting_id, {
+                    "type": "user-left",
+                    "sender": target_id,
+                    "removed": True,
+                })
+                try:
+                    await target_ws.close(code=4000, reason="removed-by-host")
+                except Exception:
+                    pass
+                continue
+
+            if msg_type == "share-host-access":
+                if role != "host":
+                    logger.warning(
+                        "Ignoring share-host-access from non-host client %s in meeting %s",
+                        cid,
+                        meeting_id,
+                    )
+                    continue
+
+                target_id = data.get("target")
+                restrictions = data.get("restrictions") or {}
+                if not target_id or target_id == cid:
+                    continue
+
+                manager.grant_host_access(meeting_id, target_id, restrictions)
+                target_ws = manager.get_client_websocket(meeting_id, target_id)
+                if target_ws:
+                    manager.update_metadata(meeting_id, target_ws, {
+                        "role": "host",
+                        "hostAccess": True,
+                        "hostAccessRestrictions": restrictions,
+                    })
+
+                await manager.send_to_client(meeting_id, target_id, {
+                    "type": "host-access-granted",
+                    "sender": cid,
+                    "meetingId": meeting_id,
+                    "restrictions": restrictions,
+                })
+                await manager.broadcast_to_all(meeting_id, {
+                    "type": "participant-update",
+                    "sender": target_id,
+                    "role": "host",
+                    "hostAccess": True,
+                    "hostAccessRestrictions": restrictions,
+                })
                 continue
 
             if msg_type == "participant-update":
