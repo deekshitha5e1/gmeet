@@ -70,8 +70,10 @@ const ParticipantsList = React.memo(({
               <div key={id} className="flex items-center gap-3">
                 <ProfileAvatar name={meta.name} picture={meta.picture} className="w-8 h-8" textClass="text-[10px]" />
                 <div className="flex min-w-0 flex-1 flex-col">
-                  <span className="text-sm font-medium">{meta.name}</span>
-                  <span className="text-[10px] text-gray-500">{meta.role}</span>
+                  <span className="text-sm font-medium">
+                    {meta.name}{(meta.role === 'host' || meta.hostAccess === true) && ' (Host)'}
+                  </span>
+                  <span className="text-[10px] text-gray-500">{meta.role === 'host' ? 'Host' : 'Participant'}</span>
                 </div>
                 {canRemove && (
                   <button

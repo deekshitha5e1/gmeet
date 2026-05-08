@@ -29,13 +29,18 @@ const VideoGrid = React.memo(({
         const stream = remoteStreams[peerId] || null;
         const hasLiveAudio = !!stream?.getAudioTracks?.().some((track) => track.readyState === 'live' && track.enabled);
         const hasLiveVideo = !!stream?.getVideoTracks?.().some((track) => track.readyState === 'live' && track.enabled);
+        const isHost = meta.role === 'host' || meta.hostAccess === true;
+        let label = meta.name || 'Participant';
+        if (isHost) {
+          label = `${label} (Host)`;
+        }
         return ({
           id: peerId,
           stream,
-          label: meta.name || 'Participant',
+          label,
           avatarName: meta.name || 'Participant',
           picture: meta.picture,
-          isHost: meta.role === 'host',
+          isHost,
           isLocal: false,
           isHandRaised: meta.isHandRaised,
           isAudioEnabled: typeof meta.isAudioEnabled === 'boolean' ? meta.isAudioEnabled : hasLiveAudio,
@@ -46,13 +51,21 @@ const VideoGrid = React.memo(({
       });
 
     // 2. Add the local user tile
+    const localMeta = participantsMetadata[localClientId] || {};
+    const isLocalHost = localMeta.role === 'host' || localMeta.hostAccess === true;
+    let localLabel = displayName;
+    if (isLocalHost) {
+      localLabel = `${localLabel} (Host)`;
+    }
+    localLabel = `${localLabel} (You)`;
+
     const localTile = {
       id: localClientId,
       stream: localStream,
-      label: displayName + ' (You)',
+      label: localLabel,
       avatarName: displayName,
-      picture: participantsMetadata[localClientId]?.picture || localUserPicture,
-      isHost: participantsMetadata[localClientId]?.role === 'host',
+      picture: localMeta.picture || localUserPicture,
+      isHost: isLocalHost,
       isLocal: true,
       isHandRaised,
       isAudioEnabled,

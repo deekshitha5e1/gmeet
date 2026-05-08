@@ -196,20 +196,19 @@ const VideoPlayer = React.memo(({
         />
       )}
 
-      {/* Overlays - Optimized to be minimal */}
-      <div className="absolute bottom-3 left-3 flex items-center gap-2 px-2 py-1 bg-black/50 backdrop-blur-md rounded-lg">
-        <span className="text-xs font-medium text-white truncate max-w-[120px]">{label}</span>
-        {isHost && <span className="text-[10px] bg-blue-600 px-1.5 py-0.5 rounded text-white">Host</span>}
+      {/* Overlays - z-20 to ensure visibility over avatar (z-10) and video (z-0) */}
+      <div className="absolute bottom-3 left-3 z-20 flex items-center gap-2 px-2 py-1 bg-black/50 backdrop-blur-md rounded-lg">
+        <span className="text-xs font-medium text-white truncate max-w-[180px]">{label}</span>
       </div>
 
       {!isAudioEnabled && (
-        <div className="absolute top-3 right-3 p-1.5 bg-red-500/80 rounded-full text-white">
+        <div className="absolute top-3 right-3 z-20 p-1.5 bg-red-500/80 rounded-full text-white">
           <MicOff size={14} />
         </div>
       )}
 
       {isHandRaised && (
-        <div className="absolute top-3 left-3 bg-yellow-500 p-1.5 rounded-full shadow-lg">
+        <div className="absolute top-3 left-3 z-20 bg-yellow-500 p-1.5 rounded-full shadow-lg">
           <span className="text-[10px] font-bold text-black">✋</span>
         </div>
       )}
